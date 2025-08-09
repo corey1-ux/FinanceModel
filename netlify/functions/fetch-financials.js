@@ -60,30 +60,34 @@ exports.handler = async (event, context) => {
         };
     }
 
-    // Construct API URLs
+    // FREE TIER ENDPOINTS ONLY
     const baseUrl = 'https://financialmodelingprep.com/api/v3';
     const profileUrl = `${baseUrl}/profile/${ticker}?apikey=${apiKey}`;
-    const cashflowUrl = `${baseUrl}/cash-flow-statement/${ticker}?period=quarter&limit=4&apikey=${apiKey}`;
+    const incomeUrl = `${baseUrl}/income-statement/${ticker}?period=annual&limit=1&apikey=${apiKey}`;
     const balanceSheetUrl = `${baseUrl}/balance-sheet-statement/${ticker}?period=annual&limit=1&apikey=${apiKey}`;
+    const quoteUrl = `${baseUrl}/quote/${ticker}?apikey=${apiKey}`;
 
-    console.log('Fetching from URLs:', {
+    console.log('Fetching from FREE TIER URLs:', {
         profile: profileUrl.replace(apiKey, 'HIDDEN'),
-        cashflow: cashflowUrl.replace(apiKey, 'HIDDEN'),
-        balanceSheet: balanceSheetUrl.replace(apiKey, 'HIDDEN')
+        income: incomeUrl.replace(apiKey, 'HIDDEN'),
+        balanceSheet: balanceSheetUrl.replace(apiKey, 'HIDDEN'),
+        quote: quoteUrl.replace(apiKey, 'HIDDEN')
     });
 
     try {
-        // Make API calls
-        const [profileRes, cashflowRes, balanceSheetRes] = await Promise.all([
+        // Make API calls to FREE endpoints only
+        const [profileRes, incomeRes, balanceSheetRes, quoteRes] = await Promise.all([
             fetch(profileUrl),
-            fetch(cashflowUrl),
-            fetch(balanceSheetUrl)
+            fetch(incomeUrl),
+            fetch(balanceSheetUrl),
+            fetch(quoteUrl)
         ]);
 
         console.log('API response status codes:', {
             profile: profileRes.status,
-            cashflow: cashflowRes.status,
-            balanceSheet: balanceSheetRes.status
+            income: incomeRes.status,
+            balanceSheet: balanceSheetRes.status,
+            quote: quoteRes.status
         });
 
         // Check if any request failed
@@ -93,10 +97,10 @@ exports.handler = async (event, context) => {
             throw new Error(`Profile API failed with status ${profileRes.status}: ${errorText}`);
         }
 
-        if (!cashflowRes.ok) {
-            const errorText = await cashflowRes.text();
-            console.log('Cashflow API error:', errorText);
-            throw new Error(`Cashflow API failed with status ${cashflowRes.status}: ${errorText}`);
+        if (!incomeRes.ok) {
+            const errorText = await incomeRes.text();
+            console.log('Income API error:', errorText);
+            throw new Error(`Income API failed with status ${incomeRes.status}: ${errorText}`);
         }
 
         if (!balanceSheetRes.ok) {
@@ -105,15 +109,23 @@ exports.handler = async (event, context) => {
             throw new Error(`Balance Sheet API failed with status ${balanceSheetRes.status}: ${errorText}`);
         }
 
+        if (!quoteRes.ok) {
+            const errorText = await quoteRes.text();
+            console.log('Quote API error:', errorText);
+            throw new Error(`Quote API failed with status ${quoteRes.status}: ${errorText}`);
+        }
+
         // Parse responses
         const profileData = await profileRes.json();
-        const cashflowData = await cashflowRes.json();
+        const incomeData = await incomeRes.json();
         const balanceSheetData = await balanceSheetRes.json();
+        const quoteData = await quoteRes.json();
 
         console.log('Data received:', {
             profileLength: Array.isArray(profileData) ? profileData.length : 'not array',
-            cashflowLength: Array.isArray(cashflowData) ? cashflowData.length : 'not array',
-            balanceSheetLength: Array.isArray(balanceSheetData) ? balanceSheetData.length : 'not array'
+            incomeLength: Array.isArray(incomeData) ? incomeData.length : 'not array',
+            balanceSheetLength: Array.isArray(balanceSheetData) ? balanceSheetData.length : 'not array',
+            quoteLength: Array.isArray(quoteData) ? quoteData.length : 'not array'
         });
 
         // Validate data
@@ -122,9 +134,9 @@ exports.handler = async (event, context) => {
             throw new Error('No company profile data found. The ticker may be invalid or not supported.');
         }
 
-        if (!Array.isArray(cashflowData) || cashflowData.length === 0) {
-            console.log('No cashflow data returned');
-            throw new Error('No cash flow data found. The ticker may be invalid or have no recent financial data.');
+        if (!Array.isArray(incomeData) || incomeData.length === 0) {
+            console.log('No income data returned');
+            throw new Error('No income statement data found. The ticker may be invalid or have no recent financial data.');
         }
 
         if (!Array.isArray(balanceSheetData) || balanceSheetData.length === 0) {
@@ -132,11 +144,49 @@ exports.handler = async (event, context) => {
             throw new Error('No balance sheet data found. The ticker may be invalid or have no recent financial data.');
         }
 
+        if (!Array.isArray(quoteData) || quoteData.length === 0) {
+            console.log('No quote data returned');
+            throw new Error('No quote data found. The ticker may be invalid.');
+        }
+
+        // CALCULATE FREE CASH FLOW from available data
+        // FCF = Net Income + Depreciation - Capital Expenditures - Change in Working Capital
+        // For approximation: FCF ≈ Net Income + Depreciation (conservative estimate)
+        const income = incomeData[0];
+        const balance = balanceSheetData[0];
+        const quote = quoteData[0];
+
+        // Approximate FCF calculation using available free tier data
+        const netIncome = income.netIncome || 0;
+        const depreciationAndAmortization = income.depreciationAndAmortization || 0;
+        
+        // Conservative FCF estimate (actual FCF is usually lower due to CapEx)
+        const estimatedFCF = netIncome + depreciationAndAmortization;
+
+        console.log('Calculated estimated FCF:', {
+            netIncome,
+            depreciationAndAmortization,
+            estimatedFCF
+        });
+
+        // Create mock cash flow data structure
+        const mockCashflow = [{
+            freeCashFlow: estimatedFCF,
+            revenue: income.revenue,
+            netIncome: netIncome,
+            // Note: This is estimated data since actual cash flow requires paid subscription
+            operatingCashFlow: estimatedFCF * 1.2 // Rough estimate
+        }];
+
         // Combine data
         const combinedData = {
-            profile: profileData[0],
-            cashflow: cashflowData,
-            balanceSheet: balanceSheetData[0]
+            profile: {
+                ...profileData[0],
+                price: quote.price // Add current price from quote
+            },
+            cashflow: mockCashflow,
+            balanceSheet: balanceSheetData[0],
+            note: "Free Cash Flow is estimated from Income Statement data. For actual cash flow data, upgrade to FMP paid plan."
         };
 
         console.log(`Successfully processed data for ${ticker}`);
