@@ -46,11 +46,30 @@ exports.handler = async (event) => {
         const peers = PEER_MAP[ticker.toUpperCase()] || [];
         let peerData = [];
         if (peers.length > 0) {
-            const peerPromises = peers.map(peerTicker => {
-                const url = `${baseUrl}/key-metrics-ttm/${peerTicker}?apikey=${apiKey}`;
-                return fetch(url).then(res => res.json());
+            // --- UPDATED: Fetch from two different endpoints for more reliable peer data ---
+            const keyMetricsPromises = peers.map(peerTicker => 
+                fetch(`${baseUrl}/key-metrics-ttm/${peerTicker}?apikey=${apiKey}`).then(res => res.json())
+            );
+            const financialRatiosPromises = peers.map(peerTicker => 
+                fetch(`${baseUrl}/financial-ratios-ttm/${peerTicker}?apikey=${apiKey}`).then(res => res.json())
+            );
+
+            const keyMetricsData = await Promise.all(keyMetricsPromises);
+            const financialRatiosData = await Promise.all(financialRatiosPromises);
+
+            // Now, combine the data from both sources for each peer
+            peerData = peers.map((peerTicker, i) => {
+                const metrics = keyMetricsData[i]?.[0];
+                const ratios = financialRatiosData[i]?.[0];
+
+                return {
+                    ticker: peerTicker,
+                    peRatio: metrics?.peRatioTTM,
+                    // --- FIX: Use the direct cashFlowToRevenueRatioTTM for FCF Margin ---
+                    fcfMargin: ratios?.cashFlowToRevenueRatioTTM || 0,
+                    growth: (metrics?.revenueGrowthTTM || 0) * 100
+                };
             });
-            peerData = await Promise.all(peerPromises);
         }
 
         const profile = profileData[0];
@@ -79,27 +98,7 @@ exports.handler = async (event) => {
                 incomeStatements: historicalIncomeData,
                 cashflowStatements: historicalCashflowData
             },
-            // --- UPDATED: More robust peer data processing ---
-            peers: peerData.map((p, i) => {
-                const metrics = p[0]; // The API returns an array with one object
-                if (!metrics) {
-                    // If API fails for a peer, return empty data
-                    return { ticker: peers[i], peRatio: null, fcfMargin: 0, growth: 0 };
-                }
-
-                // Safely calculate FCF Margin
-                const fcfYield = metrics.freeCashFlowYieldTTM || 0;
-                const marketCap = metrics.marketCapTTM || 0;
-                const revenue = metrics.revenueTTM || 0;
-                const fcfMargin = revenue > 0 ? (fcfYield * marketCap) / revenue : 0;
-                
-                return {
-                    ticker: peers[i],
-                    peRatio: metrics.peRatioTTM,
-                    fcfMargin: fcfMargin,
-                    growth: (metrics.revenueGrowthTTM || 0) * 100 // Use 0 if growth is not provided
-                };
-            })
+            peers: peerData
         };
 
         return { statusCode: 200, headers, body: JSON.stringify(combinedData) };
