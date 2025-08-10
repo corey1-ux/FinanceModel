@@ -197,7 +197,7 @@ async function fetchFinancialData() {
   document.getElementById('charts-container').style.display = 'none';
   document.getElementById('peer-comparison-container').style.display = 'none';
 
-  // --- FIX: Correct `try {` syntax ---
+  // --- FIX: Corrected the `try:` to `try {` ---
   try {
     const response = await fetch(`/.netlify/functions/fetch-financials?ticker=${ticker}`);
     if (!response.ok) {
@@ -220,7 +220,6 @@ async function fetchFinancialData() {
     document.getElementById('cash-equivalents').value = (balanceSheet.cashAndCashEquivalents / 1e9).toFixed(2);
     
     renderCharts(historicalData);
-    // --- UPDATED: Call the new comparison renderer ---
     renderPeerTable(comparisonData);
 
     showStatus(`✅ Successfully loaded data for ${profile.companyName}. Click "Auto-Calculate" for smart assumptions.`, 'success');
