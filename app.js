@@ -385,7 +385,8 @@ function getSizeAdjustment(marketCap) {
 }
 function updateScenarioResults(bear, base, bull) { document.getElementById('bear-value').textContent = `$${bear.toFixed(2)}`; document.getElementById('base-value').textContent = `$${base.toFixed(2)}`; document.getElementById('bull-value').textContent = `$${bull.toFixed(2)}`; }
 function updateSanityChecks(results, data) { const fcfPerShare = data.sharesOutstanding !== 0 ? ((data.currentRevenue * data.fcfMargin) / data.sharesOutstanding) : 0; const impliedPFCF = fcfPerShare !== 0 ? (results.fairValuePerShare / fcfPerShare) : NaN; const evRevenue = data.currentRevenue !== 0 ? (results.enterpriseValue / data.currentRevenue) : NaN; const marketCap = (data.currentPrice && data.sharesOutstanding) ? (data.currentPrice * data.sharesOutstanding) : NaN; const fcfYield = marketCap && marketCap !== 0 ? ((data.currentRevenue * data.fcfMargin) / marketCap) * 100 : NaN; const upside = isFiniteNumber(data.currentPrice) && data.currentPrice > 0 ? ((results.fairValuePerShare - data.currentPrice) / data.currentPrice * 100) : NaN; document.getElementById('implied-pe').textContent = isFiniteNumber(impliedPFCF) ? `${impliedPFCF.toFixed(1)}x` : 'N/A'; document.getElementById('ev-revenue').textContent = isFiniteNumber(evRevenue) ? `${evRevenue.toFixed(1)}x` : 'N/A'; document.getElementById('fcf-yield').textContent = isFiniteNumber(fcfYield) ? `${fcfYield.toFixed(1)}%` : 'N/A'; document.getElementById('upside-downside').textContent = isFiniteNumber(upside) ? `${upside.toFixed(1)}%` : 'N/A'; }
-// --- UPDATED with the correct PV Factor formula ---
+
+// --- FIX: Corrected PV Factor formula below ---
 function updateCashFlowTable(projections) {
     const tbody = document.getElementById('cash-flow-body');
     tbody.innerHTML = '';
@@ -394,7 +395,7 @@ function updateCashFlowTable(projections) {
     for (let i = 0; i < 10; i++) { 
         const tr = document.createElement('tr');
         
-        // The corrected formula is here: (1 + currentData.discountRate)
+        // Corrected formula is here: (1 + currentData.discountRate)
         tr.innerHTML = `
             <td style="text-align:left">Year ${i + 1}</td>
             <td>$${Math.round(projections.revenues[i]).toLocaleString()}M</td>
@@ -408,7 +409,7 @@ function updateCashFlowTable(projections) {
     terminalRow.style.backgroundColor = '#f1f2f6';
     terminalRow.style.fontWeight = 'bold';
     
-    // The corrected formula is also needed for the terminal value's PV factor display
+    // Corrected formula is also needed for the terminal value's PV factor display
     terminalRow.innerHTML = `
         <td style="text-align:left">Terminal Value</td>
         <td>-</td>
