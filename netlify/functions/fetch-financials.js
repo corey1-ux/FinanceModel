@@ -1,240 +1,215 @@
-const cache = new Map();
+// Enhanced API Integration with Automated Assumptions
+async function fetchFinancialData() {
+  const ticker = document.getElementById('ticker-input').value.trim().toUpperCase();
+  if (!ticker) {
+    showStatus('Please enter a stock ticker.', 'error');
+    return;
+  }
 
-exports.handler = async (event, context) => {
-    // Add CORS headers
-    const headers = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Content-Type': 'application/json'
-    };
+  const loader = document.getElementById('api-loader');
+  const btnText = document.querySelector('.fetch-btn .btn-text');
+  const fetchButton = document.getElementById('fetch-button');
+  
+  loader.style.display = 'block';
+  btnText.textContent = 'Fetching & Analyzing...';
+  fetchButton.disabled = true;
 
-    // Handle preflight OPTIONS request
-    if (event.httpMethod === 'OPTIONS') {
-        return {
-            statusCode: 200,
-            headers,
-            body: ''
-        };
+  try {
+    // Fetch current data + 5 years of historical data
+    const response = await fetch(`/.netlify/functions/fetch-financials?ticker=${ticker}&historical=true`);
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `API request failed with status: ${response.status}`);
     }
 
-    console.log('Function invoked with event:', JSON.stringify(event, null, 2));
+    const data = await response.json();
+    const { profile, cashflow, balanceSheet, historicalIncome } = data;
 
-    const { ticker } = event.queryStringParameters || {};
-    const CACHE_DURATION_MS = 60 * 60 * 1000; // 1 hour cache
+    // Populate basic financial data (existing code)
+    populateBasicFinancialData(profile, cashflow, balanceSheet);
+    
+    // NEW: Auto-calculate growth assumptions
+    const assumptions = calculateAutomatedAssumptions(profile, historicalIncome);
+    populateGrowthAssumptions(assumptions);
 
-    if (!ticker) {
-        console.log('No ticker provided');
-        return {
-            statusCode: 400,
-            headers,
-            body: JSON.stringify({ error: 'Ticker parameter is required' })
-        };
-    }
+    showStatus(`✅ Successfully loaded data and calculated assumptions for ${profile.companyName}`, 'success');
 
-    console.log(`Processing request for ticker: ${ticker}`);
+  } catch (error) {
+    console.error('Error fetching financial data:', error);
+    showStatus(`❌ Failed to fetch data: ${error.message}`, 'error');
+  } finally {
+    loader.style.display = 'none';
+    btnText.textContent = 'Fetch Financial Data';
+    fetchButton.disabled = false;
+  }
+}
 
-    // Check cache first
-    const cachedEntry = cache.get(ticker);
-    if (cachedEntry && (Date.now() - cachedEntry.timestamp < CACHE_DURATION_MS)) {
-        console.log(`Returning cached data for ${ticker}`);
-        return {
-            statusCode: 200,
-            headers,
-            body: JSON.stringify(cachedEntry.data)
-        };
-    }
+// Calculate intelligent growth assumptions
+function calculateAutomatedAssumptions(profile, historicalIncome) {
+  console.log('Calculating automated assumptions...');
+  
+  // 1. Calculate Historical Revenue Growth
+  const revenueGrowthRates = calculateHistoricalGrowth(historicalIncome);
+  console.log('Historical revenue growth rates:', revenueGrowthRates);
+  
+  // 2. Industry-based adjustments
+  const industryAdjustments = getIndustryAdjustments(profile.sector, profile.industry);
+  console.log('Industry adjustments:', industryAdjustments);
+  
+  // 3. Calculate WACC using Beta
+  const wacc = calculateWACC(profile.beta);
+  console.log('Calculated WACC:', wacc);
+  
+  // 4. Apply smoothing and reasonableness checks
+  const smoothedGrowth = applyGrowthSmoothing(revenueGrowthRates, industryAdjustments);
+  
+  return {
+    revenueGrowth15: Math.min(Math.max(smoothedGrowth.nearTerm, 0), 50), // Cap between 0-50%
+    revenueGrowth610: Math.min(Math.max(smoothedGrowth.longTerm, 0), 15), // Cap between 0-15%
+    terminalGrowth: 2.5, // Conservative default
+    discountRate: wacc,
+    confidence: smoothedGrowth.confidence, // How reliable the estimates are
+    rationale: smoothedGrowth.rationale // Explanation for user
+  };
+}
 
-    // Get API key
-    const apiKey = process.env.FMP_API_KEY;
-    console.log('API key present:', !!apiKey);
+// Calculate historical revenue growth rates
+function calculateHistoricalGrowth(historicalIncome) {
+  if (!historicalIncome || historicalIncome.length < 3) {
+    return { average: 5, median: 5, recent: 5, trend: 'insufficient_data' };
+  }
+  
+  // Sort by date (most recent first)
+  const sortedData = historicalIncome
+    .filter(item => item.revenue && item.revenue > 0)
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .slice(0, 5); // Last 5 years max
+  
+  if (sortedData.length < 2) {
+    return { average: 5, median: 5, recent: 5, trend: 'insufficient_data' };
+  }
+  
+  // Calculate year-over-year growth rates
+  const growthRates = [];
+  for (let i = 0; i < sortedData.length - 1; i++) {
+    const currentRevenue = sortedData[i].revenue;
+    const previousRevenue = sortedData[i + 1].revenue;
+    const growthRate = ((currentRevenue - previousRevenue) / previousRevenue) * 100;
+    growthRates.push(growthRate);
+  }
+  
+  // Calculate statistics
+  const averageGrowth = growthRates.reduce((a, b) => a + b, 0) / growthRates.length;
+  const medianGrowth = growthRates.sort((a, b) => a - b)[Math.floor(growthRates.length / 2)];
+  const recentGrowth = growthRates[0]; // Most recent year
+  
+  // Determine trend
+  const isAccelerating = growthRates.length >= 3 && growthRates[0] > growthRates[1] && growthRates[1] > growthRates[2];
+  const isDecelerating = growthRates.length >= 3 && growthRates[0] < growthRates[1] && growthRates[1] < growthRates[2];
+  
+  return {
+    rates: growthRates,
+    average: averageGrowth,
+    median: medianGrowth,
+    recent: recentGrowth,
+    trend: isAccelerating ? 'accelerating' : isDecelerating ? 'decelerating' : 'stable',
+    volatility: calculateVolatility(growthRates)
+  };
+}
 
-    if (!apiKey) {
-        console.log('FMP_API_KEY environment variable not found');
-        return {
-            statusCode: 500,
-            headers,
-            body: JSON.stringify({ 
-                error: 'FMP_API_KEY environment variable is not configured on the server.' 
-            })
-        };
-    }
+// Industry-based growth expectations
+function getIndustryAdjustments(sector, industry) {
+  const sectorDefaults = {
+    'Technology': { growth: 12, maturity: 6, volatility: 'high' },
+    'Healthcare': { growth: 8, maturity: 5, volatility: 'medium' },
+    'Financial Services': { growth: 6, maturity: 4, volatility: 'medium' },
+    'Consumer Cyclical': { growth: 7, maturity: 4, volatility: 'high' },
+    'Consumer Defensive': { growth: 4, maturity: 3, volatility: 'low' },
+    'Industrials': { growth: 6, maturity: 4, volatility: 'medium' },
+    'Energy': { growth: 5, maturity: 3, volatility: 'very_high' },
+    'Utilities': { growth: 3, maturity: 2, volatility: 'low' },
+    'Real Estate': { growth: 4, maturity: 3, volatility: 'medium' },
+    'Materials': { growth: 5, maturity: 3, volatility: 'high' },
+    'Communication Services': { growth: 8, maturity: 5, volatility: 'medium' }
+  };
+  
+  // Default to moderate growth if sector not found
+  return sectorDefaults[sector] || { growth: 6, maturity: 4, volatility: 'medium' };
+}
 
-    // FREE TIER ENDPOINTS ONLY
-    const baseUrl = 'https://financialmodelingprep.com/api/v3';
-    const profileUrl = `${baseUrl}/profile/${ticker}?apikey=${apiKey}`;
-    const incomeUrl = `${baseUrl}/income-statement/${ticker}?period=annual&limit=1&apikey=${apiKey}`;
-    const balanceSheetUrl = `${baseUrl}/balance-sheet-statement/${ticker}?period=annual&limit=1&apikey=${apiKey}`;
-    const quoteUrl = `${baseUrl}/quote/${ticker}?apikey=${apiKey}`;
+// Calculate WACC using beta and market assumptions
+function calculateWACC(beta) {
+  const riskFreeRate = 4.5; // Current 10-year Treasury (update periodically)
+  const marketRiskPremium = 5.5; // Historical equity risk premium
+  const costOfEquity = riskFreeRate + (beta * marketRiskPremium);
+  
+  // Add small company premium if needed
+  let wacc = costOfEquity;
+  if (wacc < 8) wacc = 8; // Minimum for equity investments
+  if (wacc > 15) wacc = 15; // Cap for very risky companies
+  
+  return Math.round(wacc * 10) / 10; // Round to 1 decimal
+}
 
-    console.log('Fetching from FREE TIER URLs:', {
-        profile: profileUrl.replace(apiKey, 'HIDDEN'),
-        income: incomeUrl.replace(apiKey, 'HIDDEN'),
-        balanceSheet: balanceSheetUrl.replace(apiKey, 'HIDDEN'),
-        quote: quoteUrl.replace(apiKey, 'HIDDEN')
-    });
+// Apply smoothing and create final recommendations
+function applyGrowthSmoothing(historical, industry) {
+  const confidence = historical.trend === 'insufficient_data' ? 'low' : 
+                    historical.volatility > 20 ? 'medium' : 'high';
+  
+  let nearTermGrowth, longTermGrowth;
+  let rationale = [];
+  
+  if (historical.trend === 'insufficient_data') {
+    // Use pure industry defaults
+    nearTermGrowth = industry.growth;
+    longTermGrowth = industry.maturity;
+    rationale.push(`Using industry defaults due to limited historical data`);
+  } else {
+    // Blend historical with industry expectations
+    const historicalWeight = confidence === 'high' ? 0.7 : 0.5;
+    const industryWeight = 1 - historicalWeight;
+    
+    nearTermGrowth = (historical.median * historicalWeight) + (industry.growth * industryWeight);
+    longTermGrowth = (historical.median * 0.6 * historicalWeight) + (industry.maturity * industryWeight);
+    
+    rationale.push(`Blended historical (${(historicalWeight*100).toFixed(0)}%) and industry estimates`);
+    rationale.push(`Historical median growth: ${historical.median.toFixed(1)}%`);
+    rationale.push(`Trend: ${historical.trend}, Volatility: ${historical.volatility.toFixed(1)}%`);
+  }
+  
+  // Apply conservatism
+  nearTermGrowth *= 0.9; // 10% haircut for conservatism
+  longTermGrowth *= 0.9;
+  
+  rationale.push(`Applied 10% conservatism discount`);
+  
+  return {
+    nearTerm: Math.round(nearTermGrowth * 10) / 10,
+    longTerm: Math.round(longTermGrowth * 10) / 10,
+    confidence,
+    rationale: rationale.join('; ')
+  };
+}
 
-    try {
-        // Make API calls to FREE endpoints only
-        const [profileRes, incomeRes, balanceSheetRes, quoteRes] = await Promise.all([
-            fetch(profileUrl),
-            fetch(incomeUrl),
-            fetch(balanceSheetUrl),
-            fetch(quoteUrl)
-        ]);
+// Populate the growth assumptions in the UI
+function populateGrowthAssumptions(assumptions) {
+  document.getElementById('revenue-growth-1-5').value = assumptions.revenueGrowth15.toFixed(1);
+  document.getElementById('revenue-growth-6-10').value = assumptions.revenueGrowth610.toFixed(1);
+  document.getElementById('terminal-growth').value = assumptions.terminalGrowth.toFixed(1);
+  document.getElementById('discount-rate').value = assumptions.discountRate.toFixed(1);
+  
+  // Show explanation to user
+  showStatus(`🤖 Auto-calculated assumptions (${assumptions.confidence} confidence): ${assumptions.rationale}`, 'success');
+  
+  // Log for debugging
+  console.log('Applied assumptions:', assumptions);
+}
 
-        console.log('API response status codes:', {
-            profile: profileRes.status,
-            income: incomeRes.status,
-            balanceSheet: balanceSheetRes.status,
-            quote: quoteRes.status
-        });
-
-        // Check if any request failed
-        if (!profileRes.ok) {
-            const errorText = await profileRes.text();
-            console.log('Profile API error:', errorText);
-            throw new Error(`Profile API failed with status ${profileRes.status}: ${errorText}`);
-        }
-
-        if (!incomeRes.ok) {
-            const errorText = await incomeRes.text();
-            console.log('Income API error:', errorText);
-            throw new Error(`Income API failed with status ${incomeRes.status}: ${errorText}`);
-        }
-
-        if (!balanceSheetRes.ok) {
-            const errorText = await balanceSheetRes.text();
-            console.log('Balance Sheet API error:', errorText);
-            throw new Error(`Balance Sheet API failed with status ${balanceSheetRes.status}: ${errorText}`);
-        }
-
-        if (!quoteRes.ok) {
-            const errorText = await quoteRes.text();
-            console.log('Quote API error:', errorText);
-            throw new Error(`Quote API failed with status ${quoteRes.status}: ${errorText}`);
-        }
-
-        // Parse responses
-        const profileData = await profileRes.json();
-        const incomeData = await incomeRes.json();
-        const balanceSheetData = await balanceSheetRes.json();
-        const quoteData = await quoteRes.json();
-
-        console.log('Data received:', {
-            profileLength: Array.isArray(profileData) ? profileData.length : 'not array',
-            incomeLength: Array.isArray(incomeData) ? incomeData.length : 'not array',
-            balanceSheetLength: Array.isArray(balanceSheetData) ? balanceSheetData.length : 'not array',
-            quoteLength: Array.isArray(quoteData) ? quoteData.length : 'not array'
-        });
-
-        // Debug: Log available fields in each dataset
-        if (Array.isArray(profileData) && profileData.length > 0) {
-            console.log('Profile fields:', Object.keys(profileData[0]));
-            console.log('Profile shares-related fields:', Object.keys(profileData[0]).filter(key => 
-                key.toLowerCase().includes('share') || key.toLowerCase().includes('outstanding')));
-        }
-        
-        if (Array.isArray(quoteData) && quoteData.length > 0) {
-            console.log('Quote fields:', Object.keys(quoteData[0]));
-            console.log('Quote shares-related fields:', Object.keys(quoteData[0]).filter(key => 
-                key.toLowerCase().includes('share') || key.toLowerCase().includes('outstanding')));
-        }
-
-        // Validate data
-        if (!Array.isArray(profileData) || profileData.length === 0) {
-            console.log('No profile data returned');
-            throw new Error('No company profile data found. The ticker may be invalid or not supported.');
-        }
-
-        if (!Array.isArray(incomeData) || incomeData.length === 0) {
-            console.log('No income data returned');
-            throw new Error('No income statement data found. The ticker may be invalid or have no recent financial data.');
-        }
-
-        if (!Array.isArray(balanceSheetData) || balanceSheetData.length === 0) {
-            console.log('No balance sheet data returned');
-            throw new Error('No balance sheet data found. The ticker may be invalid or have no recent financial data.');
-        }
-
-        if (!Array.isArray(quoteData) || quoteData.length === 0) {
-            console.log('No quote data returned');
-            throw new Error('No quote data found. The ticker may be invalid.');
-        }
-
-        // CALCULATE FREE CASH FLOW from available data
-        // FCF = Net Income + Depreciation - Capital Expenditures - Change in Working Capital
-        // For approximation: FCF ≈ Net Income + Depreciation (conservative estimate)
-        const income = incomeData[0];
-        const balance = balanceSheetData[0];
-        const quote = quoteData[0];
-
-        // Approximate FCF calculation using available free tier data
-        const netIncome = income.netIncome || 0;
-        const depreciationAndAmortization = income.depreciationAndAmortization || 0;
-        
-        // Conservative FCF estimate (actual FCF is usually lower due to CapEx)
-        const estimatedFCF = netIncome + depreciationAndAmortization;
-
-        console.log('Calculated estimated FCF:', {
-            netIncome,
-            depreciationAndAmortization,
-            estimatedFCF
-        });
-
-        // Create mock cash flow data structure
-        const mockCashflow = [{
-            freeCashFlow: estimatedFCF,
-            revenue: income.revenue,
-            netIncome: netIncome,
-            // Note: This is estimated data since actual cash flow requires paid subscription
-            operatingCashFlow: estimatedFCF * 1.2 // Rough estimate
-        }];
-
-        // Combine data
-        const combinedData = {
-            profile: {
-                ...profileData[0],
-                price: quote.price, // Add current price from quote
-                // Try to get shares outstanding from multiple possible sources
-                sharesOutstanding: profileData[0].sharesOutstanding || 
-                                 profileData[0].weightedAverageShsOut || 
-                                 profileData[0].weightedAverageShsOutDil ||
-                                 quote.sharesOutstanding ||
-                                 quote.weightedAverageShsOut ||
-                                 quote.weightedAverageShsOutDil ||
-                                 null
-            },
-            cashflow: mockCashflow,
-            balanceSheet: balanceSheetData[0],
-            note: "Free Cash Flow is estimated from Income Statement data. For actual cash flow data, upgrade to FMP paid plan."
-        };
-
-        console.log('Final shares outstanding value:', combinedData.profile.sharesOutstanding);
-
-        console.log(`Successfully processed data for ${ticker}`);
-
-        // Cache the result
-        cache.set(ticker, {
-            data: combinedData,
-            timestamp: Date.now()
-        });
-
-        return {
-            statusCode: 200,
-            headers,
-            body: JSON.stringify(combinedData)
-        };
-
-    } catch (error) {
-        console.error('Error in function:', error);
-        return {
-            statusCode: 500,
-            headers,
-            body: JSON.stringify({ 
-                error: error.message,
-                details: 'Check function logs for more information'
-            })
-        };
-    }
-};
+// Utility function
+function calculateVolatility(values) {
+  if (values.length < 2) return 0;
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const variance = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / values.length;
+  return Math.sqrt(variance);
+}
