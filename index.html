@@ -55,35 +55,42 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:linear-g
 .help-text{font-size:.8rem;color:#6c757d;margin-top:5px}
 .error-message{background:#f8d7da;color:#721c24;padding:10px;border-radius:6px;margin-top:10px;font-size:0.9rem}
 .success-message{background:#d4edda;color:#155724;padding:10px;border-radius:6px;margin-top:10px;font-size:0.9rem}
+/* --- NEW: Style for the peer table --- */
+.peer-table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+.peer-table th, .peer-table td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; font-size: .9rem; }
+.peer-table th { background: #f1f2f6; font-weight: 600; color: #555; }
+.peer-table td:not(:first-child) { text-align: right; }
+.peer-table tr:hover { background: #f8f9fa; }
+.peer-table .highlight { font-weight: bold; background-color: #e9ecef; }
 @media (max-width:768px){.main-content{grid-template-columns:1fr}.input-row{grid-template-columns:1fr}.scenarios-grid{grid-template-columns:1fr}.header h1{font-size:2rem}}
 </style>
 </head>
 <body>
 <div class="container">
-  <div class="header">
-    <h1>Professional DCF Valuation Model</h1>
-    <p>Complete Goldman Sachs-Style Stock Analysis with Live Financial Data</p>
-  </div>
+    <div class="header">
+        <h1>Professional DCF Valuation Model</h1>
+        <p>Complete Goldman Sachs-Style Stock Analysis with Live Financial Data</p>
+    </div>
 
-  <div class="main-content">
-    <div class="input-column">
-      <div class="input-section">
-        <h2 class="section-title">📊 Ticker Lookup</h2>
-        <div class="input-group">
-          <label for="ticker-input">Enter Stock Ticker</label>
-          <input id="ticker-input" type="text" placeholder="e.g., AAPL, MSFT, GOOGL, TSLA" maxlength="10">
-        </div>
-        <button class="fetch-btn" onclick="fetchFinancialData()" id="fetch-button">
-          <span class="btn-text">Fetch Financial Data</span>
-          <div class="loader" id="api-loader"></div>
-        </button>
-        <div class="help-text">Fetches the latest TTM financial data automatically from your Netlify function</div>
-        <div id="fetch-status"></div>
-      </div>
+    <div class="main-content">
+        <div class="input-column">
+            <div class="input-section">
+                <h2 class="section-title">📊 Ticker Lookup</h2>
+                <div class="input-group">
+                    <label for="ticker-input">Enter Stock Ticker</label>
+                    <input id="ticker-input" type="text" placeholder="e.g., AAPL, WMT, JNJ" maxlength="10">
+                </div>
+                <button class="fetch-btn" onclick="fetchFinancialData()" id="fetch-button">
+                    <span class="btn-text">Fetch Financial Data</span>
+                    <div class="loader" id="api-loader"></div>
+                </button>
+                <div class="help-text">Fetches latest data and competitive analysis from your Netlify function.</div>
+                <div id="fetch-status"></div>
+            </div>
 
-      <div class="input-section">
-        <h2 class="section-title">💼 Company & Financial Data</h2>
-        <div class="input-group">
+            <div class="input-section">
+                <h2 class="section-title">💼 Company & Financial Data</h2>
+                <div class="input-group">
           <label for="company-name">Company Name</label>
           <input id="company-name" type="text" placeholder="Will auto-populate from API" readonly>
         </div>
@@ -148,52 +155,72 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:linear-g
             </div>
           </div>
         </div>
-      </div>
+            </div>
 
-      <div class="input-section">
-        <h2 class="section-title">📈 Growth & Valuation Assumptions</h2>
-        <button class="fetch-btn" onclick="autoCalculateAssumptions()" style="margin-top: 10px; margin-bottom: 15px; background: linear-gradient(135deg, #27ae60 0%, #229954 100%);">
-          🤖 Auto-Calculate Assumptions
-        </button>
-        <div class="input-row">
-          <div class="input-group">
-            <label for="revenue-growth-1-5">Revenue Growth Years 1-5 (%)</label>
-            <input id="revenue-growth-1-5" type="number" step="0.1" placeholder="e.g., 8">
-            <div class="help-text">Near-term growth rate - use analyst consensus or your estimate</div>
-          </div>
-          <div class="input-group">
-            <label for="revenue-growth-6-10">Revenue Growth Years 6-10 (%)</label>
-            <input id="revenue-growth-6-10" type="number" step="0.1" placeholder="e.g., 4">
-            <div class="help-text">Mature growth rate - typically 3-6% for established companies</div>
-          </div>
+            <div class="input-section">
+                <h2 class="section-title">📈 Growth & Valuation Assumptions</h2>
+                <button class="fetch-btn" onclick="autoCalculateAssumptions()" style="margin-top: 10px; margin-bottom: 15px; background: linear-gradient(135deg, #27ae60 0%, #229954 100%);">
+                    🤖 Auto-Calculate Assumptions
+                </button>
+                <div class="input-row">
+                    <div class="input-group">
+                        <label for="revenue-growth-1-5">Revenue Growth Yrs 1-5 (%)</label>
+                        <input id="revenue-growth-1-5" type="number" step="0.1" placeholder="e.g., 8">
+                    </div>
+                    <div class="input-group">
+                        <label for="revenue-growth-6-10">Revenue Growth Yrs 6-10 (%)</label>
+                        <input id="revenue-growth-6-10" type="number" step="0.1" placeholder="e.g., 4">
+                    </div>
+                </div>
+                <div class="input-row">
+                    <div class="input-group">
+                        <label for="discount-rate">Discount Rate / WACC (%)</label>
+                        <input id="discount-rate" type="number" step="0.1" value="9.0">
+                    </div>
+                    <div class="input-group">
+                        <label for="fcf-margin">Normalized FCF Margin (%)</label>
+                        <input id="fcf-margin" type="number" step="0.1" placeholder="e.g., 22.5">
+                        <div class="help-text">Auto-populates, but you can override it.</div>
+                    </div>
+                </div>
+                 <div class="input-group">
+                        <label for="terminal-growth">Terminal Growth Rate (%)</label>
+                        <input id="terminal-growth" type="number" step="0.1" value="2.5">
+                        <div class="help-text">Long-term GDP growth rate (usually 2-3%).</div>
+                    </div>
+                <button class="calculate-btn" onclick="calculateDCF()">🚀 Calculate DCF Valuation</button>
+            </div>
         </div>
-        <div class="input-row">
-          <div class="input-group">
-            <label for="terminal-growth">Terminal Growth Rate (%)</label>
-            <input id="terminal-growth" type="number" step="0.1" value="2.5">
-            <div class="help-text">Long-term GDP growth rate (usually 2-3%)</div>
-          </div>
-          <div class="input-group">
-            <label for="discount-rate">Discount Rate / WACC (%)</label>
-            <input id="discount-rate" type="number" step="0.1" value="9.0">
-            <div class="help-text">Company's cost of capital (8-12% typical for large companies)</div>
-          </div>
-        </div>
-        <button class="calculate-btn" onclick="calculateDCF()">🚀 Calculate DCF Valuation</button>
-      </div>
-    </div>
-    <div class="results-section">
-      <h2 class="section-title">💰 Valuation Results</h2>
-      <div id="charts-container" style="display:none; margin-top: 20px;">
-        <h3 class="section-title">📈 5-Year Historical Trends</h3>
-        <div style="margin-bottom: 20px;">
-            <canvas id="revenue-chart"></canvas>
-        </div>
-        <div>
-            <canvas id="fcf-chart"></canvas>
-        </div>
-      </div>
-      <div class="scenario-tabs">
+
+        <div class="results-section">
+            <h2 class="section-title">💰 Valuation & Analysis</h2>
+            
+            <div id="peer-comparison-container" style="display:none;">
+                <h3 class="section-title">Peer Comparison</h3>
+                <table class="peer-table">
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            <th>Ticker</th>
+                            <th>Peer 1</th>
+                            <th>Peer 2</th>
+                        </tr>
+                    </thead>
+                    <tbody id="peer-comparison-body"></tbody>
+                </table>
+            </div>
+
+            <div id="charts-container" style="display:none; margin-top: 20px;">
+                <h3 class="section-title">📈 5-Year Historical Trends</h3>
+                <div style="margin-bottom: 20px;">
+                    <canvas id="revenue-chart"></canvas>
+                </div>
+                <div>
+                    <canvas id="fcf-chart"></canvas>
+                </div>
+            </div>
+
+            <div class="scenario-tabs">
         <div class="scenario-tab active" onclick="showScenario('base', this)">Base Case</div>
         <div class="scenario-tab" onclick="showScenario('bull', this)">Bull Case</div>
         <div class="scenario-tab" onclick="showScenario('bear', this)">Bear Case</div>
@@ -203,7 +230,7 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:linear-g
         <div id="results-container">
           <div class="result-item">
             <span class="result-label">Free Cash Flow (TTM)</span>
-            <span class="result-value" id="current-fcf">$0M</span>
+            <span class="result-value" id="current-fcf">$0M (Normalized)</span>
           </div>
           <div class="result-item">
             <span class="result-label">Enterprise Value</span>
@@ -273,9 +300,10 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:linear-g
         </thead>
         <tbody id="cash-flow-body"></tbody>
       </table>
+        </div>
     </div>
-  </div>
 </div>
+
 <script src="app.js"></script>
 
 </body>

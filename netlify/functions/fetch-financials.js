@@ -1,109 +1,92 @@
 const fetch = require('node-fetch');
 
+// --- NEW: A map of tickers to their top competitors ---
+const PEER_MAP = {
+    'AAPL': ['MSFT', 'GOOGL'],
+    'MSFT': ['AAPL', 'GOOGL'],
+    'GOOGL': ['MSFT', 'META'],
+    'META': ['GOOGL', 'SNAP'],
+    'AMZN': ['WMT', 'COST'],
+    'TSLA': ['F', 'GM'],
+    'JNJ': ['PFE', 'MRK'],
+    'WMT': ['TGT', 'COST'],
+    'COST': ['WMT', 'TGT'],
+    'TGT': ['WMT', 'COST'],
+    'PFE': ['JNJ', 'MRK'],
+    // Add more as needed
+};
+
 exports.handler = async (event) => {
-    const headers = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Content-Type': 'application/json'
-    };
+    const headers = { 'Access-Control-Allow-Origin': '*' }; // Simplified headers
 
     const { ticker } = event.queryStringParameters || {};
-    if (!ticker) {
-        return { statusCode: 400, headers, body: JSON.stringify({ error: 'Ticker is required' }) };
-    }
+    if (!ticker) return { statusCode: 400, headers, body: JSON.stringify({ error: 'Ticker is required' }) };
 
     const apiKey = process.env.FMP_API_KEY;
-    if (!apiKey) {
-        return { statusCode: 500, headers, body: JSON.stringify({ error: 'API Key not configured' }) };
-    }
+    if (!apiKey) return { statusCode: 500, headers, body: JSON.stringify({ error: 'API Key not configured' }) };
 
     const baseUrl = 'https://financialmodelingprep.com/api/v3';
-    
-    // --- UPDATED: Fetch 5 years for historical statements ---
-    const profileUrl = `${baseUrl}/profile/${ticker}?apikey=${apiKey}`;
-    const balanceSheetUrl = `${baseUrl}/balance-sheet-statement/${ticker}?period=annual&limit=1&apikey=${apiKey}`;
-    const quoteUrl = `${baseUrl}/quote/${ticker}?apikey=${apiKey}`;
-    const cashflowUrl = `${baseUrl}/cash-flow-statement/${ticker}?period=annual&limit=1&apikey=${apiKey}`;
-    const incomeUrl = `${baseUrl}/income-statement/${ticker}?period=annual&limit=1&apikey=${apiKey}`;
-    const historicalIncomeUrl = `${baseUrl}/income-statement/${ticker}?period=annual&limit=5&apikey=${apiKey}`;
-    const historicalCashflowUrl = `${baseUrl}/cash-flow-statement/${ticker}?period=annual&limit=5&apikey=${apiKey}`;
 
     try {
-        const apiCalls = [
-            fetch(profileUrl),
-            fetch(balanceSheetUrl),
-            fetch(quoteUrl),
-            fetch(cashflowUrl),
-            fetch(incomeUrl),
-            fetch(historicalIncomeUrl), // --- NEW ---
-            fetch(historicalCashflowUrl) // --- NEW ---
+        // --- Fetch all data for the PRIMARY ticker ---
+        const primaryUrls = [
+            `${baseUrl}/profile/${ticker}?apikey=${apiKey}`,
+            `${baseUrl}/balance-sheet-statement/${ticker}?period=annual&limit=1&apikey=${apiKey}`,
+            `${baseUrl}/income-statement/${ticker}?period=annual&limit=5&apikey=${apiKey}`,
+            `${baseUrl}/cash-flow-statement/${ticker}?period=annual&limit=5&apikey=${apiKey}`
         ];
+        const primaryPromises = primaryUrls.map(url => fetch(url).then(res => res.json()));
+        const [
+            profileData,
+            balanceSheetData,
+            historicalIncomeData,
+            historicalCashflowData
+        ] = await Promise.all(primaryPromises);
         
-        const responses = await Promise.all(apiCalls);
-        
-        for (const response of responses) {
-            if (!response.ok) {
-                throw new Error(`API call failed with status ${response.status}`);
-            }
+        // --- Fetch PEER data (if peers are defined) ---
+        const peers = PEER_MAP[ticker.toUpperCase()] || [];
+        let peerData = [];
+        if (peers.length > 0) {
+            const peerPromises = peers.map(peerTicker => {
+                // For peers, we only need key metrics for comparison
+                const url = `${baseUrl}/key-metrics-ttm/${peerTicker}?apikey=${apiKey}`;
+                return fetch(url).then(res => res.json());
+            });
+            peerData = await Promise.all(peerPromises);
         }
 
-        const [
-            profileData, 
-            balanceSheetData, 
-            quoteData, 
-            cashflowData, 
-            incomeData,
-            historicalIncomeData, // --- NEW ---
-            historicalCashflowData // --- NEW ---
-        ] = await Promise.all(responses.map(r => r.json()));
-
-        // --- (Validation remains the same) ---
-        if (!profileData?.[0]) throw new Error('No profile data found.');
-        if (!balanceSheetData?.[0]) throw new Error('No balance sheet data found.');
-        if (!quoteData?.[0]) throw new Error('No quote data found.');
-        if (!cashflowData?.[0]) throw new Error('No cash flow statement data found.');
-        if (!incomeData?.[0]) throw new Error('No income statement data found.');
-
-        // --- (Current data extraction remains the same) ---
+        // --- Assemble the final JSON response ---
         const profile = profileData[0];
-        const balance = balanceSheetData[0];
-        const quote = quoteData[0];
-        const cashflowStatement = cashflowData[0];
-        const incomeStatement = incomeData[0];
+        const latestIncome = historicalIncomeData[0];
+        const latestCashflow = historicalCashflowData[0];
 
-        const operatingCashFlow = cashflowStatement.operatingCashFlow || 0;
-        const capitalExpenditure = cashflowStatement.capitalExpenditure || 0;
+        const operatingCashFlow = latestCashflow.operatingCashFlow || 0;
+        const capitalExpenditure = latestCashflow.capitalExpenditure || 0;
         const accurateFCF = operatingCashFlow - capitalExpenditure;
-        const revenue = incomeStatement.revenue || cashflowStatement.revenue || 0;
 
         const combinedData = {
-            profile: { ...profile, price: quote.price, sharesOutstanding: quote.sharesOutstanding },
-            currentFinancials: { // --- UPDATED: Nest current financials for clarity ---
-                freeCashFlow: accurateFCF,
-                revenue: revenue,
-                netIncome: incomeStatement.netIncome,
+            profile,
+            currentFinancials: {
+                revenue: latestIncome.revenue,
+                freeCashFlow: accurateFCF
             },
-            balanceSheet: balance,
-            // --- NEW: Add the historical data object ---
+            balanceSheet: balanceSheetData[0],
             historicalData: {
                 incomeStatements: historicalIncomeData,
                 cashflowStatements: historicalCashflowData
             },
-            note: "FCF is calculated from the annual Cash Flow Statement."
+            peers: peerData.map((p, i) => ({ // Format peer data nicely
+                ticker: peers[i],
+                peRatio: p[0]?.peRatioTTM,
+                fcfMargin: (p[0]?.freeCashFlowYieldTTM * p[0]?.marketCapTTM) / p[0]?.revenueTTM,
+                growth: p[0]?.revenueGrowthTTM * 100
+            }))
         };
 
-        return {
-            statusCode: 200,
-            headers,
-            body: JSON.stringify(combinedData)
-        };
+        return { statusCode: 200, headers, body: JSON.stringify(combinedData) };
 
     } catch (error) {
         console.error('Error in function:', error);
-        return {
-            statusCode: 502,
-            headers,
-            body: JSON.stringify({ error: error.message })
-        };
+        return { statusCode: 502, headers, body: JSON.stringify({ error: error.message }) };
     }
 };
