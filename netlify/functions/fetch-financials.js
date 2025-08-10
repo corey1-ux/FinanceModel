@@ -45,29 +45,33 @@ exports.handler = async (event) => {
         
         const peers = PEER_MAP[ticker.toUpperCase()] || [];
         let peerData = [];
+
+        // --- UPDATED: "No Shortcuts" Peer Data Fetching ---
         if (peers.length > 0) {
-            // --- UPDATED: Fetch from two different endpoints for more reliable peer data ---
-            const keyMetricsPromises = peers.map(peerTicker => 
-                fetch(`${baseUrl}/key-metrics-ttm/${peerTicker}?apikey=${apiKey}`).then(res => res.json())
-            );
-            const financialRatiosPromises = peers.map(peerTicker => 
-                fetch(`${baseUrl}/financial-ratios-ttm/${peerTicker}?apikey=${apiKey}`).then(res => res.json())
-            );
+            const peerPromises = peers.flatMap(peerTicker => [
+                fetch(`${baseUrl}/profile/${peerTicker}?apikey=${apiKey}`).then(res => res.json()),
+                fetch(`${baseUrl}/cash-flow-statement/${peerTicker}?period=annual&limit=1&apikey=${apiKey}`).then(res => res.json())
+            ]);
 
-            const keyMetricsData = await Promise.all(keyMetricsPromises);
-            const financialRatiosData = await Promise.all(financialRatiosPromises);
+            const allPeerData = await Promise.all(peerPromises);
 
-            // Now, combine the data from both sources for each peer
             peerData = peers.map((peerTicker, i) => {
-                const metrics = keyMetricsData[i]?.[0];
-                const ratios = financialRatiosData[i]?.[0];
+                const peerProfile = allPeerData[i * 2]?.[0];
+                const peerCashflow = allPeerData[i * 2 + 1]?.[0];
+
+                if (!peerProfile || !peerCashflow) {
+                    return { ticker: peerTicker, peRatio: null, fcfMargin: 0 };
+                }
+
+                // Calculate FCF Margin from raw statement data
+                const revenue = peerCashflow.revenue || 0;
+                const fcf = (peerCashflow.operatingCashFlow || 0) - (peerCashflow.capitalExpenditure || 0);
+                const fcfMargin = revenue > 0 ? fcf / revenue : 0;
 
                 return {
                     ticker: peerTicker,
-                    peRatio: metrics?.peRatioTTM,
-                    // --- FIX: Use the direct cashFlowToRevenueRatioTTM for FCF Margin ---
-                    fcfMargin: ratios?.cashFlowToRevenueRatioTTM || 0,
-                    growth: (metrics?.revenueGrowthTTM || 0) * 100
+                    peRatio: peerProfile.pe,
+                    fcfMargin: fcfMargin
                 };
             });
         }
