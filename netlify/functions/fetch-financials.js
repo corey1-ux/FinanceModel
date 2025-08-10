@@ -43,10 +43,18 @@ exports.handler = async (event) => {
             historicalCashflowData
         ] = await Promise.all(primaryPromises);
         
+        // FIX: The API returns an object, not an array for single tickers.
+        const profile = Array.isArray(profileData) ? profileData[0] : profileData;
+        const quote = Array.isArray(quoteData) ? quoteData[0] : quoteData;
+        const balanceSheet = Array.isArray(balanceSheetData) ? balanceSheetData[0] : balanceSheetData;
+        
+        if (!profile || !balanceSheet) {
+             throw new Error('Could not retrieve complete primary financial data for the ticker.');
+        }
+
         const peers = PEER_MAP[ticker.toUpperCase()] || [];
         let peerData = [];
 
-        // --- UPDATED: "No Shortcuts" Peer Data Fetching ---
         if (peers.length > 0) {
             const peerPromises = peers.flatMap(peerTicker => [
                 fetch(`${baseUrl}/profile/${peerTicker}?apikey=${apiKey}`).then(res => res.json()),
@@ -56,14 +64,17 @@ exports.handler = async (event) => {
             const allPeerData = await Promise.all(peerPromises);
 
             peerData = peers.map((peerTicker, i) => {
-                const peerProfile = allPeerData[i * 2]?.[0];
-                const peerCashflow = allPeerData[i * 2 + 1]?.[0];
+                const peerProfileResponse = allPeerData[i * 2];
+                const peerCashflowResponse = allPeerData[i * 2 + 1];
+                
+                // FIX: Handle both object and array responses for peers
+                const peerProfile = Array.isArray(peerProfileResponse) ? peerProfileResponse[0] : peerProfileResponse;
+                const peerCashflow = Array.isArray(peerCashflowResponse) ? peerCashflowResponse[0] : peerCashflowResponse;
 
-                if (!peerProfile || !peerCashflow) {
+                if (!peerProfile || !peerCashflow || !peerCashflow.revenue) {
                     return { ticker: peerTicker, peRatio: null, fcfMargin: 0 };
                 }
-
-                // Calculate FCF Margin from raw statement data
+                
                 const revenue = peerCashflow.revenue || 0;
                 const fcf = (peerCashflow.operatingCashFlow || 0) - (peerCashflow.capitalExpenditure || 0);
                 const fcfMargin = revenue > 0 ? fcf / revenue : 0;
@@ -76,8 +87,6 @@ exports.handler = async (event) => {
             });
         }
 
-        const profile = profileData[0];
-        const quote = quoteData[0];
         const latestIncome = historicalIncomeData[0];
         const latestCashflow = historicalCashflowData[0];
 
@@ -97,7 +106,7 @@ exports.handler = async (event) => {
                 revenue: latestIncome.revenue,
                 freeCashFlow: accurateFCF
             },
-            balanceSheet: balanceSheetData[0],
+            balanceSheet: balanceSheet,
             historicalData: {
                 incomeStatements: historicalIncomeData,
                 cashflowStatements: historicalCashflowData

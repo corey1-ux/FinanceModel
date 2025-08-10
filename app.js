@@ -30,12 +30,14 @@ function renderPeerTable(peers, primaryTicker) {
         { 
             name: 'FCF Margin', 
             main: (primaryMetrics.averageFcfMargin * 100).toFixed(1) + '%', 
-            peers: peers.map(p => (p.fcfMargin * 100).toFixed(1) + '%') 
+            // FIX: Add a check for p before accessing properties
+            peers: peers.map(p => p ? (p.fcfMargin * 100).toFixed(1) + '%' : 'N/A') 
         },
         { 
             name: 'P/E Ratio', 
             main: profile.pe?.toFixed(1) || 'N/A', 
-            peers: peers.map(p => p.peRatio?.toFixed(1) || 'N/A') 
+            // FIX: Add a check for p before accessing properties
+            peers: peers.map(p => p ? (p.peRatio?.toFixed(1) || 'N/A') : 'N/A') 
         }
     ];
 
