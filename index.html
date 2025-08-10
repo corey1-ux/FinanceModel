@@ -324,6 +324,10 @@ async function fetchFinancialData() {
     const data = await response.json();
     const { profile, cashflow, balanceSheet } = data;
 
+    // Debug: Log all available fields
+    console.log('Profile data fields:', Object.keys(profile));
+    console.log('Full profile data:', profile);
+
     // Calculate TTM (sum of last 4 quarters)
     const ttmRevenue = cashflow.reduce((acc, quarter) => acc + (quarter.revenue || 0), 0);
     const ttmFcf = cashflow.reduce((acc, quarter) => acc + (quarter.freeCashFlow || 0), 0);
@@ -332,7 +336,16 @@ async function fetchFinancialData() {
     document.getElementById('company-name').value = profile.companyName || 'N/A';
     document.getElementById('current-price').value = profile.price ? profile.price.toFixed(2) : '0';
     
-    const sharesInBillion = profile.sharesOutstanding ? (profile.sharesOutstanding / 1_000_000_000).toFixed(2) : '0';
+    // Try multiple possible field names for shares outstanding
+    let sharesOutstanding = profile.sharesOutstanding || 
+                           profile.weightedAverageShsOut || 
+                           profile.weightedAverageShsOutDil || 
+                           profile.shares || 
+                           0;
+    
+    console.log('Shares outstanding found:', sharesOutstanding);
+    
+    const sharesInBillion = sharesOutstanding ? (sharesOutstanding / 1_000_000_000).toFixed(2) : '0';
     document.getElementById('shares-outstanding').value = sharesInBillion;
     document.getElementById('shares-unit').value = 'billion';
 
