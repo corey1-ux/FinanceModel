@@ -4,7 +4,7 @@ let fcfChart = null;
 let lastFetchedData = null;
 let currentData = {};
 
-// --- NEW: Renders the peer comparison table ---
+// --- UPDATED: Renders the peer comparison table with corrected metrics ---
 function renderPeerTable(peers, primaryTicker) {
     const container = document.getElementById('peer-comparison-container');
     const tbody = document.getElementById('peer-comparison-body');
@@ -23,11 +23,9 @@ function renderPeerTable(peers, primaryTicker) {
     headers[3].textContent = peers[1]?.ticker || 'N/A';
 
     const primaryMetrics = analyzeHistoricalData(lastFetchedData.historicalData);
-    const { profile, currentFinancials } = lastFetchedData;
-    const marketCap = profile.price * profile.sharesOutstanding;
-    const currentPe = marketCap / (currentFinancials.revenue * (primaryMetrics.averageFcfMargin));
-
-
+    const { profile } = lastFetchedData;
+    
+    // --- FIX: This metrics array now correctly matches the data from the backend ---
     const metrics = [
         { 
             name: 'FCF Margin', 
@@ -38,12 +36,7 @@ function renderPeerTable(peers, primaryTicker) {
             name: 'P/E Ratio', 
             main: profile.pe?.toFixed(1) || 'N/A', 
             peers: peers.map(p => p.peRatio?.toFixed(1) || 'N/A') 
-        },
-        { 
-            name: 'Revenue Growth (TTM)', 
-            main: (primaryMetrics.revenueCAGR).toFixed(1) + '%', 
-            peers: peers.map(p => p.growth?.toFixed(1) + '%' || 'N/A') 
-        },
+        }
     ];
 
     metrics.forEach(metric => {
@@ -60,8 +53,7 @@ function renderPeerTable(peers, primaryTicker) {
     container.style.display = 'block';
 }
 
-
-// --- UPDATED: Auto-Calculate now populates the FCF Margin override field ---
+// --- Auto-Calculate now populates the FCF Margin override field ---
 function autoCalculateAssumptions() {
   if (!lastFetchedData) {
     showStatus('Please fetch financial data first', 'error');
@@ -73,54 +65,44 @@ function autoCalculateAssumptions() {
   const sectorEstimates = getIndustryGrowthEstimates(profile.sector, profile.industry);
   const sizeAdjustment = getSizeAdjustment(profile.mktCap);
 
-  // Auto-calculate growth
   const sectorGrowth = (sectorEstimates.nearTerm * sizeAdjustment.growth);
   const finalGrowth = Math.min(sectorGrowth, historicalAnalysis.revenueCAGR);
   document.getElementById('revenue-growth-1-5').value = finalGrowth.toFixed(1);
   document.getElementById('revenue-growth-6-10').value = (sectorEstimates.longTerm * sizeAdjustment.growth).toFixed(1);
 
-  // Auto-calculate WACC
   const wacc = calculateWACCFromBeta(profile.beta);
   const adjustedWACC = (wacc * sizeAdjustment.risk);
   document.getElementById('discount-rate').value = adjustedWACC.toFixed(1);
 
-  // --- NEW: Auto-populate the FCF margin override field ---
   document.getElementById('fcf-margin').value = (historicalAnalysis.averageFcfMargin * 100).toFixed(1);
-
   document.getElementById('terminal-growth').value = 2.5;
   showStatus('🤖 Assumptions auto-calculated based on historical and sector data.', 'success');
 }
 
 
-// --- UPDATED: CalculateDCF now reads from the override fields ---
+// --- CalculateDCF now reads from the override fields ---
 function calculateDCF() {
     if (!lastFetchedData) {
         showStatus('Please fetch and analyze data first.', 'error');
         return;
     }
     
-    // --- NEW: Read all assumptions directly from the input fields ---
     const data = {
         currentRevenue: convertToMillions(toNumber(document.getElementById('current-revenue').value), document.getElementById('revenue-unit').value),
         sharesOutstanding: convertToMillions(toNumber(document.getElementById('shares-outstanding').value), document.getElementById('shares-unit').value),
         totalDebt: convertToMillions(toNumber(document.getElementById('total-debt').value), document.getElementById('debt-unit').value),
         cashEquivalents: convertToMillions(toNumber(document.getElementById('cash-equivalents').value), document.getElementById('cash-unit').value),
         currentPrice: toNumber(document.getElementById('current-price').value),
-
-        // These are now the user's final, potentially edited, assumptions
         revenueGrowth15: toNumber(document.getElementById('revenue-growth-1-5').value) / 100,
         revenueGrowth610: toNumber(document.getElementById('revenue-growth-6-10').value) / 100,
         discountRate: toNumber(document.getElementById('discount-rate').value) / 100,
-        fcfMargin: toNumber(document.getElementById('fcf-margin').value) / 100, // Read from the new override field
+        fcfMargin: toNumber(document.getElementById('fcf-margin').value) / 100,
         terminalGrowth: toNumber(document.getElementById('terminal-growth').value) / 100,
     };
 
-    // --- (Validation and the rest of the function remains the same) ---
     const required = [
-        {k: 'currentRevenue', v: data.currentRevenue},
-        {k: 'discountRate', v: data.discountRate},
-        {k: 'sharesOutstanding', v: data.sharesOutstanding},
-        {k: 'revenueGrowth15', v: data.revenueGrowth15},
+        {k: 'currentRevenue', v: data.currentRevenue}, {k: 'discountRate', v: data.discountRate},
+        {k: 'sharesOutstanding', v: data.sharesOutstanding}, {k: 'revenueGrowth15', v: data.revenueGrowth15},
         {k: 'fcfMargin', v: data.fcfMargin}
     ];
     
@@ -137,10 +119,8 @@ function calculateDCF() {
 
     currentData = data;
     const base = performDCFCalculation(data);
-    
     const bullInput = { ...data, revenueGrowth15: data.revenueGrowth15 * 1.2, fcfMargin: data.fcfMargin * 1.1 };
     const bull = performDCFCalculation(bullInput);
-  
     const bearInput = { ...data, revenueGrowth15: data.revenueGrowth15 * 0.8, fcfMargin: data.fcfMargin * 0.9 };
     const bear = performDCFCalculation(bearInput);
 
@@ -153,17 +133,15 @@ function calculateDCF() {
     document.getElementById('scenarios-grid').style.display = 'grid';
     document.getElementById('sanity-checks').style.display = 'block';
     document.getElementById('cash-flow-table').style.display = 'table';
-  
     showStatus('✅ DCF valuation completed successfully!', 'success');
 }
 
 
-// --- UPDATED fetchFinancialData to call the new peer table renderer ---
+// --- fetchFinancialData calls the new peer table renderer ---
 async function fetchFinancialData() {
   const ticker = document.getElementById('ticker-input').value.trim().toUpperCase();
   if (!ticker) return showStatus('Please enter a stock ticker.', 'error');
 
-  // --- Reset UI ---
   const loader = document.getElementById('api-loader');
   const btnText = document.querySelector('.fetch-btn .btn-text');
   const fetchButton = document.getElementById('fetch-button');
@@ -185,16 +163,15 @@ async function fetchFinancialData() {
     
     const { profile, currentFinancials, balanceSheet, historicalData, peers } = data;
 
-    // --- Populate UI fields ---
     document.getElementById('company-name').value = profile.companyName || 'N/A';
     document.getElementById('current-price').value = profile.price ? profile.price.toFixed(2) : '0';
-    document.getElementById('shares-outstanding').value = (profile.sharesOutstanding / 1e9).toFixed(2);
+    const sharesOutstandingValue = profile.sharesOutstanding || 0;
+    document.getElementById('shares-outstanding').value = (sharesOutstandingValue / 1e9).toFixed(2);
     document.getElementById('current-revenue').value = (currentFinancials.revenue / 1e9).toFixed(2);
     document.getElementById('free-cash-flow').value = (currentFinancials.freeCashFlow / 1e9).toFixed(2);
     document.getElementById('total-debt').value = (balanceSheet.totalDebt / 1e9).toFixed(2);
     document.getElementById('cash-equivalents').value = (balanceSheet.cashAndCashEquivalents / 1e9).toFixed(2);
     
-    // --- Render new components ---
     renderCharts(historicalData);
     renderPeerTable(peers, profile.symbol);
 
@@ -211,11 +188,6 @@ async function fetchFinancialData() {
 }
 
 // --- (The rest of your app.js file can remain the same) ---
-// Includes: calculateCAGR, analyzeHistoricalData, renderCharts (provided earlier), 
-// performDCFCalculation, updateResults, updateScenarioResults, updateSanityChecks, 
-// updateCashFlowTable, and all the utility and dummy functions.
-// NOTE: Make sure to replace the older versions of these functions with the new ones provided above.
-
 function calculateCAGR(beginningValue, endingValue, years) { if (beginningValue <= 0) return 0; const cagr = (Math.pow(endingValue / beginningValue, 1 / years) - 1) * 100; return Math.round(cagr * 10) / 10; }
 function analyzeHistoricalData(historicalData) {
     const incomes = [...historicalData.incomeStatements].reverse(); const cashflows = [...historicalData.cashflowStatements].reverse();
@@ -275,18 +247,4 @@ function getIndustryGrowthEstimates(sector, industry) { const sectorGrowth = { '
 function calculateWACCFromBeta(beta) { const riskFreeRate = 4.5; const marketRiskPremium = 5.5; if (!beta || beta <= 0) beta = 1.0; const costOfEquity = riskFreeRate + (beta * marketRiskPremium); return Math.min(Math.max(costOfEquity, 7), 15); }
 function getSizeAdjustment(marketCap) { const capInBillions = marketCap / 1e9; if (capInBillions > 500) return { growth: 0.8, risk: 0.9 }; if (capInBillions > 100) return { growth: 0.9, risk: 0.95 }; if (capInBillions > 10) return { growth: 1.0, risk: 1.0 }; if (capInBillions > 2) return { growth: 1.1, risk: 1.1 }; return { growth: 1.2, risk: 1.2 }; }
 function updateScenarioResults(bear, base, bull) { document.getElementById('bear-value').textContent = `$${bear.toFixed(2)}`; document.getElementById('base-value').textContent = `$${base.toFixed(2)}`; document.getElementById('bull-value').textContent = `$${bull.toFixed(2)}`; }
-function updateSanityChecks(results, data) { const fcfPerShare = data.sharesOutstanding !== 0 ? ((data.currentRevenue * data.fcfMargin) / data.sharesOutstanding) : 0; const impliedPFCF = fcfPerShare !== 0 ? (results.fairValuePerShare / fcfPerShare) : NaN; const evRevenue = data.currentRevenue !== 0 ? (results.enterpriseValue / data.currentRevenue) : NaN; const marketCap = (data.currentPrice && data.sharesOutstanding) ? (data.currentPrice * data.sharesOutstanding) : NaN; const fcfYield = marketCap && marketCap !== 0 ? ((data.currentRevenue * data.fcfMargin) / marketCap) * 100 : NaN; const upside = isFiniteNumber(data.currentPrice) && data.currentPrice > 0 ? ((results.fairValuePerShare - data.currentPrice) / data.currentPrice * 100) : NaN; document.getElementById('implied-pe').textContent = isFiniteNumber(impliedPFCF) ? `${impliedPFCF.toFixed(1)}x` : 'N/A'; document.getElementById('ev-revenue').textContent = isFiniteNumber(evRevenue) ? `${evRevenue.toFixed(1)}x` : 'N/A'; document.getElementById('fcf-yield').textContent = isFiniteNumber(fcfYield) ? `${fcfYield.toFixed(1)}%` : 'N/A'; document.getElementById('upside-downside').textContent = isFiniteNumber(upside) ? `${upside.toFixed(1)}%` : 'N/A'; }
-function updateCashFlowTable(projections) {
-    const tbody = document.getElementById('cash-flow-body');
-    tbody.innerHTML = '';
-    for (let i = 0; i < 10; i++) { 
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td style="text-align:left">Year ${i + 1}</td><td>$${Math.round(projections.revenues[i]).toLocaleString()}M</td><td>$${Math.round(projections.fcf[i]).toLocaleString()}M</td><td>${(1 / Math.pow(1 + currentData.discountRate, i + 1)).toFixed(3)}</td><td>$${Math.round(projections.pv[i]).toLocaleString()}M</td>`;
-        tbody.appendChild(tr);
-    }
-    const terminalRow = document.createElement('tr');
-    terminalRow.style.backgroundColor = '#f1f2f6';
-    terminalRow.style.fontWeight = 'bold';
-    terminalRow.innerHTML = `<td style="text-align:left">Terminal Value</td><td>-</td><td>$${Math.round(projections.terminalFCF).toLocaleString()}M</td><td>${(1 / Math.pow(1 + currentData.discountRate, 10)).toFixed(3)}</td><td>$${Math.round(projections.pvTerminal).toLocaleString()}M</td>`;
-    tbody.appendChild(terminalRow);
-}
+function updateSanityChecks(results, data) { const fcfPerShare = data.sharesOutstanding !== 0 ? ((data.currentRevenue * data.fcfMargin) / data.sharesOutstanding) : 0; const impliedPFCF = fcfPerShare !== 0 ? (results.fairValuePerShare / fcfPerShare) : NaN; const evRevenue = data.currentRevenue !== 0 ? (results.enterpriseValue / data.currentRevenue) : NaN; const marketCap = (
