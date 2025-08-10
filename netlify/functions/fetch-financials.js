@@ -128,6 +128,19 @@ exports.handler = async (event, context) => {
             quoteLength: Array.isArray(quoteData) ? quoteData.length : 'not array'
         });
 
+        // Debug: Log available fields in each dataset
+        if (Array.isArray(profileData) && profileData.length > 0) {
+            console.log('Profile fields:', Object.keys(profileData[0]));
+            console.log('Profile shares-related fields:', Object.keys(profileData[0]).filter(key => 
+                key.toLowerCase().includes('share') || key.toLowerCase().includes('outstanding')));
+        }
+        
+        if (Array.isArray(quoteData) && quoteData.length > 0) {
+            console.log('Quote fields:', Object.keys(quoteData[0]));
+            console.log('Quote shares-related fields:', Object.keys(quoteData[0]).filter(key => 
+                key.toLowerCase().includes('share') || key.toLowerCase().includes('outstanding')));
+        }
+
         // Validate data
         if (!Array.isArray(profileData) || profileData.length === 0) {
             console.log('No profile data returned');
@@ -182,12 +195,22 @@ exports.handler = async (event, context) => {
         const combinedData = {
             profile: {
                 ...profileData[0],
-                price: quote.price // Add current price from quote
+                price: quote.price, // Add current price from quote
+                // Try to get shares outstanding from multiple possible sources
+                sharesOutstanding: profileData[0].sharesOutstanding || 
+                                 profileData[0].weightedAverageShsOut || 
+                                 profileData[0].weightedAverageShsOutDil ||
+                                 quote.sharesOutstanding ||
+                                 quote.weightedAverageShsOut ||
+                                 quote.weightedAverageShsOutDil ||
+                                 null
             },
             cashflow: mockCashflow,
             balanceSheet: balanceSheetData[0],
             note: "Free Cash Flow is estimated from Income Statement data. For actual cash flow data, upgrade to FMP paid plan."
         };
+
+        console.log('Final shares outstanding value:', combinedData.profile.sharesOutstanding);
 
         console.log(`Successfully processed data for ${ticker}`);
 
