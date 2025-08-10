@@ -385,17 +385,36 @@ function getSizeAdjustment(marketCap) {
 }
 function updateScenarioResults(bear, base, bull) { document.getElementById('bear-value').textContent = `$${bear.toFixed(2)}`; document.getElementById('base-value').textContent = `$${base.toFixed(2)}`; document.getElementById('bull-value').textContent = `$${bull.toFixed(2)}`; }
 function updateSanityChecks(results, data) { const fcfPerShare = data.sharesOutstanding !== 0 ? ((data.currentRevenue * data.fcfMargin) / data.sharesOutstanding) : 0; const impliedPFCF = fcfPerShare !== 0 ? (results.fairValuePerShare / fcfPerShare) : NaN; const evRevenue = data.currentRevenue !== 0 ? (results.enterpriseValue / data.currentRevenue) : NaN; const marketCap = (data.currentPrice && data.sharesOutstanding) ? (data.currentPrice * data.sharesOutstanding) : NaN; const fcfYield = marketCap && marketCap !== 0 ? ((data.currentRevenue * data.fcfMargin) / marketCap) * 100 : NaN; const upside = isFiniteNumber(data.currentPrice) && data.currentPrice > 0 ? ((results.fairValuePerShare - data.currentPrice) / data.currentPrice * 100) : NaN; document.getElementById('implied-pe').textContent = isFiniteNumber(impliedPFCF) ? `${impliedPFCF.toFixed(1)}x` : 'N/A'; document.getElementById('ev-revenue').textContent = isFiniteNumber(evRevenue) ? `${evRevenue.toFixed(1)}x` : 'N/A'; document.getElementById('fcf-yield').textContent = isFiniteNumber(fcfYield) ? `${fcfYield.toFixed(1)}%` : 'N/A'; document.getElementById('upside-downside').textContent = isFiniteNumber(upside) ? `${upside.toFixed(1)}%` : 'N/A'; }
+// --- UPDATED with the correct PV Factor formula ---
 function updateCashFlowTable(projections) {
     const tbody = document.getElementById('cash-flow-body');
     tbody.innerHTML = '';
-    for (let i = 0; i < 10; i++) { // Show all 10 years now
+    
+    // Show all 10 years of the projection
+    for (let i = 0; i < 10; i++) { 
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td style="text-align:left">Year ${i + 1}</td><td>$${Math.round(projections.revenues[i]).toLocaleString()}M</td><td>$${Math.round(projections.fcf[i]).toLocaleString()}M</td><td>${(1 / Math.pow(currentData.discountRate, i + 1)).toFixed(3)}</td><td>$${Math.round(projections.pv[i]).toLocaleString()}M</td>`;
+        
+        // The corrected formula is here: (1 + currentData.discountRate)
+        tr.innerHTML = `
+            <td style="text-align:left">Year ${i + 1}</td>
+            <td>$${Math.round(projections.revenues[i]).toLocaleString()}M</td>
+            <td>$${Math.round(projections.fcf[i]).toLocaleString()}M</td>
+            <td>${(1 / Math.pow(1 + currentData.discountRate, i + 1)).toFixed(3)}</td>
+            <td>$${Math.round(projections.pv[i]).toLocaleString()}M</td>
+        `;
         tbody.appendChild(tr);
     }
     const terminalRow = document.createElement('tr');
     terminalRow.style.backgroundColor = '#f1f2f6';
     terminalRow.style.fontWeight = 'bold';
-    terminalRow.innerHTML = `<td style="text-align:left">Terminal Value</td><td>-</td><td>$${Math.round(projections.terminalFCF).toLocaleString()}M</td><td>${(1 / Math.pow(currentData.discountRate, 10)).toFixed(3)}</td><td>$${Math.round(projections.pvTerminal).toLocaleString()}M</td>`;
+    
+    // The corrected formula is also needed for the terminal value's PV factor display
+    terminalRow.innerHTML = `
+        <td style="text-align:left">Terminal Value</td>
+        <td>-</td>
+        <td>$${Math.round(projections.terminalFCF).toLocaleString()}M</td>
+        <td>${(1 / Math.pow(1 + currentData.discountRate, 10)).toFixed(3)}</td>
+        <td>$${Math.round(projections.pvTerminal).toLocaleString()}M</td>
+    `;
     tbody.appendChild(terminalRow);
 }
