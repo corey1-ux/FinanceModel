@@ -55,13 +55,16 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:linear-g
 .help-text{font-size:.8rem;color:#6c757d;margin-top:5px}
 .error-message{background:#f8d7da;color:#721c24;padding:10px;border-radius:6px;margin-top:10px;font-size:0.9rem}
 .success-message{background:#d4edda;color:#155724;padding:10px;border-radius:6px;margin-top:10px;font-size:0.9rem}
-/* --- NEW: Style for the peer table --- */
+/* --- UPDATED: Styles for the new analytical peer table --- */
 .peer-table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-.peer-table th, .peer-table td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; font-size: .9rem; }
+.peer-table th, .peer-table td { padding: 12px; text-align: right; border-bottom: 1px solid #eee; font-size: .9rem; }
 .peer-table th { background: #f1f2f6; font-weight: 600; color: #555; }
-.peer-table td:not(:first-child) { text-align: right; }
 .peer-table tr:hover { background: #f8f9fa; }
 .peer-table .highlight { font-weight: bold; background-color: #e9ecef; }
+.peer-table .metric-name { font-weight: 600; text-align: left; }
+.peer-table .outlier-high { background-color: #f8d7da; color: #721c24; font-weight: bold; }
+.peer-table .outlier-low { background-color: #d4edda; color: #155724; font-weight: bold; }
+
 @media (max-width:768px){.main-content{grid-template-columns:1fr}.input-row{grid-template-columns:1fr}.scenarios-grid{grid-template-columns:1fr}.header h1{font-size:2rem}}
 </style>
 </head>
@@ -196,7 +199,7 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:linear-g
             <h2 class="section-title">💰 Valuation & Analysis</h2>
             
             <div id="peer-comparison-container" style="display:none;">
-                <h3 class="section-title">Peer Comparison</h3>
+                <h3 class="section-title">Peer Comparison Dashboard</h3>
                 <table class="peer-table">
                     <thead>
                         <tr>

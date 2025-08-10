@@ -4,56 +4,97 @@ let fcfChart = null;
 let lastFetchedData = null;
 let currentData = {};
 
-// --- UPDATED: Renders the peer comparison table with corrected metrics ---
-function renderPeerTable(peers, primaryTicker) {
+// --- NEW: A much more powerful peer comparison renderer with outlier detection ---
+function renderPeerTable(comparisonData) {
     const container = document.getElementById('peer-comparison-container');
     const tbody = document.getElementById('peer-comparison-body');
     const headers = document.querySelectorAll('#peer-comparison-container th');
     
     tbody.innerHTML = ''; // Clear previous data
-    
-    if (!peers || peers.length < 1) {
+
+    const { primary, peers } = comparisonData;
+    if (!primary || peers.length === 0) {
         container.style.display = 'none';
         return;
     }
 
-    // Update table headers
-    headers[1].textContent = primaryTicker;
-    headers[2].textContent = peers[0]?.ticker || 'N/A';
-    headers[3].textContent = peers[1]?.ticker || 'N/A';
-
-    const primaryMetrics = analyzeHistoricalData(lastFetchedData.historicalData);
-    const { profile } = lastFetchedData;
+    const allCompanies = [primary, ...peers];
+    const tickers = allCompanies.map(c => c.ticker);
     
-    // --- FIX: This metrics array now correctly matches the data from the backend ---
-    const metrics = [
-        { 
-            name: 'FCF Margin', 
-            main: (primaryMetrics.averageFcfMargin * 100).toFixed(1) + '%', 
-            // FIX: Add a check for p before accessing properties
-            peers: peers.map(p => p ? (p.fcfMargin * 100).toFixed(1) + '%' : 'N/A') 
-        },
-        { 
-            name: 'P/E Ratio', 
-            main: profile.pe?.toFixed(1) || 'N/A', 
-            // FIX: Add a check for p before accessing properties
-            peers: peers.map(p => p ? (p.peRatio?.toFixed(1) || 'N/A') : 'N/A') 
-        }
+    // Update table headers dynamically
+    headers[0].textContent = 'Metric';
+    headers[1].textContent = tickers[0] || 'N/A';
+    headers[2].textContent = tickers[1] || 'N/A';
+    // Ensure there's a third header to update
+    if (headers[3]) {
+      headers[3].textContent = tickers[2] || 'N/A';
+    }
+
+
+    const metricsConfig = [
+        { key: 'peRatio', name: 'P/E Ratio', format: 'x' },
+        { key: 'psRatio', name: 'Price/Sales (P/S)', format: 'x' },
+        { key: 'evToEbitda', name: 'EV/EBITDA', format: 'x' },
+        { key: 'fcfMargin', name: 'FCF Margin', format: '%' },
+        { key: 'grossMargin', name: 'Gross Margin', format: '%' },
+        { key: 'operatingMargin', name: 'Operating Margin', format: '%' },
+        { key: 'roe', name: 'Return on Equity (ROE)', format: '%' },
+        { key: 'debtToEquity', name: 'Debt/Equity', format: 'ratio' },
+        { key: 'currentRatio', name: 'Current Ratio', format: 'ratio' },
     ];
 
-    metrics.forEach(metric => {
+    metricsConfig.forEach(metric => {
         const row = document.createElement('tr');
-        row.innerHTML = `
-            <td>${metric.name}</td>
-            <td class="highlight">${metric.main}</td>
-            <td>${metric.peers[0] || 'N/A'}</td>
-            <td>${metric.peers[1] || 'N/A'}</td>
-        `;
+        const values = allCompanies.map(c => c ? c[metric.key] : null).filter(v => v !== null && isFinite(v));
+        
+        if (values.length < 2) return; // Not enough data to compare
+
+        // --- Outlier Calculation ---
+        const sum = values.reduce((a, b) => a + b, 0);
+        const avg = sum / values.length;
+        const stdDev = Math.sqrt(values.map(x => Math.pow(x - avg, 2)).reduce((a, b) => a + b, 0) / values.length);
+
+        let cells = `<td class="metric-name">${metric.name}</td>`;
+        
+        allCompanies.forEach((company, index) => {
+            if (!company) {
+                cells += `<td>N/A</td>`;
+                return;
+            }
+
+            const value = company[metric.key];
+            let displayValue = 'N/A';
+            let className = '';
+
+            if (value !== null && isFinite(value)) {
+                // Determine outlier status
+                if (stdDev > 0) {
+                    if (value > avg + (1.2 * stdDev)) className = 'outlier-high'; // 1.2x std dev for significance
+                    if (value < avg - (1.2 * stdDev)) className = 'outlier-low';
+                }
+
+                // Format the display value
+                switch(metric.format) {
+                    case 'x': displayValue = `${value.toFixed(1)}x`; break;
+                    case '%': displayValue = `${(value * 100).toFixed(1)}%`; break;
+                    case 'ratio': displayValue = value.toFixed(2); break;
+                    default: displayValue = value.toFixed(1);
+                }
+            }
+            
+            // Highlight the primary company's column
+            if (index === 0) className += ' highlight';
+            
+            cells += `<td class="${className}">${displayValue}</td>`;
+        });
+        
+        row.innerHTML = cells;
         tbody.appendChild(row);
     });
 
     container.style.display = 'block';
 }
+
 
 // --- Auto-Calculate now populates the FCF Margin override field ---
 function autoCalculateAssumptions() {
@@ -153,7 +194,7 @@ async function fetchFinancialData() {
   document.getElementById('charts-container').style.display = 'none';
   document.getElementById('peer-comparison-container').style.display = 'none';
 
-  try {
+  try:
     const response = await fetch(`/.netlify/functions/fetch-financials?ticker=${ticker}`);
     if (!response.ok) {
       const errorData = await response.json();
@@ -163,7 +204,7 @@ async function fetchFinancialData() {
     const data = await response.json();
     lastFetchedData = data;
     
-    const { profile, currentFinancials, balanceSheet, historicalData, peers } = data;
+    const { profile, currentFinancials, balanceSheet, historicalData, comparisonData } = data;
 
     document.getElementById('company-name').value = profile.companyName || 'N/A';
     document.getElementById('current-price').value = profile.price ? profile.price.toFixed(2) : '0';
@@ -175,7 +216,8 @@ async function fetchFinancialData() {
     document.getElementById('cash-equivalents').value = (balanceSheet.cashAndCashEquivalents / 1e9).toFixed(2);
     
     renderCharts(historicalData);
-    renderPeerTable(peers, profile.symbol);
+    // --- UPDATED: Call the new comparison renderer ---
+    renderPeerTable(comparisonData);
 
     showStatus(`✅ Successfully loaded data for ${profile.companyName}. Click "Auto-Calculate" for smart assumptions.`, 'success');
 
@@ -192,12 +234,23 @@ async function fetchFinancialData() {
 // --- (The rest of your app.js file can remain the same) ---
 function calculateCAGR(beginningValue, endingValue, years) { if (beginningValue <= 0) return 0; const cagr = (Math.pow(endingValue / beginningValue, 1 / years) - 1) * 100; return Math.round(cagr * 10) / 10; }
 function analyzeHistoricalData(historicalData) {
-    const incomes = [...historicalData.incomeStatements].reverse(); const cashflows = [...historicalData.cashflowStatements].reverse();
+    if (!historicalData || !historicalData.incomeStatements || !historicalData.cashflowStatements) {
+        return { revenueCAGR: 5, averageFcfMargin: 0.1 };
+    }
+    const incomes = [...historicalData.incomeStatements].reverse(); 
+    const cashflows = [...historicalData.cashflowStatements].reverse();
     if (incomes.length < 2) return { revenueCAGR: 5, averageFcfMargin: 0.1 };
-    const beginningRevenue = incomes[0].revenue; const endingRevenue = incomes[incomes.length - 1].revenue;
-    const years = incomes.length - 1; const revenueCAGR = calculateCAGR(beginningRevenue, endingRevenue, years);
-    let totalFcf = 0; let totalRevenue = 0;
-    cashflows.forEach((cf, index) => { const fcf = (cf.operatingCashFlow || 0) - (cf.capitalExpenditure || 0); totalFcf += fcf; totalRevenue += incomes[index]?.revenue || 0; });
+    const beginningRevenue = incomes[0].revenue; 
+    const endingRevenue = incomes[incomes.length - 1].revenue;
+    const years = incomes.length - 1; 
+    const revenueCAGR = calculateCAGR(beginningRevenue, endingRevenue, years);
+    let totalFcf = 0; 
+    let totalRevenue = 0;
+    cashflows.forEach((cf, index) => { 
+        const fcf = (cf.operatingCashFlow || 0) - (cf.capitalExpenditure || 0); 
+        totalFcf += fcf; 
+        totalRevenue += incomes[index]?.revenue || 0; 
+    });
     const averageFcfMargin = totalRevenue > 0 ? totalFcf / totalRevenue : 0;
     return { revenueCAGR, averageFcfMargin: Math.round(averageFcfMargin * 1000) / 1000 };
 }
