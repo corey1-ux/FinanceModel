@@ -1,124 +1,86 @@
-const cache = new Map();
-
-// This is a Node.js environment, so we need to import fetch
 const fetch = require('node-fetch');
 
-exports.handler = async (event, context) => {
+// NOTE: No cache for this example to ensure we always see fresh data for debugging.
+// In a real app, you would add your external cache (like Redis) here.
+
+exports.handler = async (event) => {
     const headers = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
         'Content-Type': 'application/json'
     };
 
-    if (event.httpMethod === 'OPTIONS') {
-        return { statusCode: 200, headers, body: '' };
-    }
-
     const { ticker } = event.queryStringParameters || {};
-    const CACHE_DURATION_MS = 60 * 60 * 1000; // 1 hour cache
-
     if (!ticker) {
-        return {
-            statusCode: 400,
-            headers,
-            body: JSON.stringify({ error: 'Ticker parameter is required' })
-        };
-    }
-
-    const cacheKey = ticker;
-    const cachedEntry = cache.get(cacheKey);
-    if (cachedEntry && (Date.now() - cachedEntry.timestamp < CACHE_DURATION_MS)) {
-        console.log(`Returning cached data for ${cacheKey}`);
-        return {
-            statusCode: 200,
-            headers,
-            body: JSON.stringify(cachedEntry.data)
-        };
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'Ticker is required' }) };
     }
 
     const apiKey = process.env.FMP_API_KEY;
     if (!apiKey) {
-        return {
-            statusCode: 500,
-            headers,
-            body: JSON.stringify({ error: 'FMP_API_KEY environment variable is not configured.' })
-        };
+        return { statusCode: 500, headers, body: JSON.stringify({ error: 'API Key not configured' }) };
     }
 
     const baseUrl = 'https://financialmodelingprep.com/api/v3';
     
-    // Define all API endpoints
+    // Define all necessary API endpoints
     const profileUrl = `${baseUrl}/profile/${ticker}?apikey=${apiKey}`;
     const balanceSheetUrl = `${baseUrl}/balance-sheet-statement/${ticker}?period=annual&limit=1&apikey=${apiKey}`;
     const quoteUrl = `${baseUrl}/quote/${ticker}?apikey=${apiKey}`;
-    // --- NEW: Add the URL for the Cash Flow Statement ---
     const cashflowUrl = `${baseUrl}/cash-flow-statement/${ticker}?period=annual&limit=1&apikey=${apiKey}`;
+    // --- RE-ADD the Income Statement for our fallback ---
+    const incomeUrl = `${baseUrl}/income-statement/${ticker}?period=annual&limit=1&apikey=${apiKey}`;
 
     try {
-        // Add the new API call to the list
         const apiCalls = [
             fetch(profileUrl),
             fetch(balanceSheetUrl),
             fetch(quoteUrl),
-            fetch(cashflowUrl) // --- NEW ---
+            fetch(cashflowUrl),
+            fetch(incomeUrl) // --- RE-ADD ---
         ];
         
         const responses = await Promise.all(apiCalls);
         
-        // Check if any request failed
         for (const response of responses) {
             if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`API call failed with status ${response.status}: ${errorText}`);
+                throw new Error(`API call failed with status ${response.status}`);
             }
         }
 
-        // Parse all responses
-        const [profileData, balanceSheetData, quoteData, cashflowData] = 
+        const [profileData, balanceSheetData, quoteData, cashflowData, incomeData] = 
             await Promise.all(responses.map(r => r.json()));
 
-        // --- VALIDATION ---
-        if (!Array.isArray(profileData) || profileData.length === 0) throw new Error('No company profile data found.');
-        if (!Array.isArray(balanceSheetData) || balanceSheetData.length === 0) throw new Error('No balance sheet data found.');
-        if (!Array.isArray(quoteData) || quoteData.length === 0) throw new Error('No quote data found.');
-        if (!Array.isArray(cashflowData) || cashflowData.length === 0) throw new Error('No cash flow statement data found.');
+        // More robust validation
+        if (!profileData?.[0]) throw new Error('No profile data found.');
+        if (!balanceSheetData?.[0]) throw new Error('No balance sheet data found.');
+        if (!quoteData?.[0]) throw new Error('No quote data found.');
+        if (!cashflowData?.[0]) throw new Error('No cash flow statement data found.');
+        if (!incomeData?.[0]) throw new Error('No income statement data found.');
 
-        // --- ACCURATE FCF CALCULATION ---
         const profile = profileData[0];
         const balance = balanceSheetData[0];
         const quote = quoteData[0];
         const cashflowStatement = cashflowData[0];
+        const incomeStatement = incomeData[0]; // --- NEW: Get income statement data ---
 
-        // --- UPDATED: Use the new, precise formula ---
+        // --- UPDATED: Accurate FCF Calculation ---
         const operatingCashFlow = cashflowStatement.operatingCashFlow || 0;
         const capitalExpenditure = cashflowStatement.capitalExpenditure || 0;
         const accurateFCF = operatingCashFlow - capitalExpenditure;
 
-        // Combine all data for the response
+        // --- UPDATED: Implement the revenue fallback ---
+        const revenue = incomeStatement.revenue || cashflowStatement.revenue || 0;
+
         const combinedData = {
-            profile: {
-                ...profile,
-                price: quote.price,
-                sharesOutstanding: quote.sharesOutstanding || profile.sharesOutstanding || null
-            },
-            // --- UPDATED: Use the real cash flow data ---
+            profile: { ...profile, price: quote.price, sharesOutstanding: quote.sharesOutstanding },
             cashflow: [{
                 freeCashFlow: accurateFCF,
-                revenue: cashflowStatement.revenue, // Revenue is also on the cash flow statement
-                netIncome: cashflowStatement.netIncome,
-                operatingCashFlow: operatingCashFlow,
-                capitalExpenditure: capitalExpenditure
+                revenue: revenue, // Use our new robust revenue variable
+                netIncome: incomeStatement.netIncome, // Get Net Income from Income Statement
             }],
             balanceSheet: balance,
-            note: "FCF is calculated from the annual Cash Flow Statement (Operating Cash Flow - Capital Expenditure)."
+            note: "FCF is calculated from the annual Cash Flow Statement."
         };
-
-        // Cache the result
-        cache.set(cacheKey, {
-            data: combinedData,
-            timestamp: Date.now()
-        });
 
         return {
             statusCode: 200,
@@ -129,12 +91,9 @@ exports.handler = async (event, context) => {
     } catch (error) {
         console.error('Error in function:', error);
         return {
-            statusCode: 500,
+            statusCode: 502, // 502 indicates a bad response from the upstream API
             headers,
-            body: JSON.stringify({ 
-                error: error.message,
-                details: 'Check function logs for more information'
-            })
+            body: JSON.stringify({ error: error.message })
         };
     }
 };
