@@ -1,5 +1,8 @@
 const cache = new Map();
 
+// This is a Node.js environment, so we need to import fetch
+const fetch = require('node-fetch');
+
 exports.handler = async (event, context) => {
     const headers = {
         'Access-Control-Allow-Origin': '*',
@@ -12,7 +15,7 @@ exports.handler = async (event, context) => {
         return { statusCode: 200, headers, body: '' };
     }
 
-    const { ticker, historical } = event.queryStringParameters || {};
+    const { ticker } = event.queryStringParameters || {};
     const CACHE_DURATION_MS = 60 * 60 * 1000; // 1 hour cache
 
     if (!ticker) {
@@ -23,8 +26,7 @@ exports.handler = async (event, context) => {
         };
     }
 
-    // Check cache first
-    const cacheKey = historical ? `${ticker}_hist` : ticker;
+    const cacheKey = ticker;
     const cachedEntry = cache.get(cacheKey);
     if (cachedEntry && (Date.now() - cachedEntry.timestamp < CACHE_DURATION_MS)) {
         console.log(`Returning cached data for ${cacheKey}`);
@@ -46,96 +48,71 @@ exports.handler = async (event, context) => {
 
     const baseUrl = 'https://financialmodelingprep.com/api/v3';
     
-    // Base endpoints
+    // Define all API endpoints
     const profileUrl = `${baseUrl}/profile/${ticker}?apikey=${apiKey}`;
-    const incomeUrl = `${baseUrl}/income-statement/${ticker}?period=annual&limit=1&apikey=${apiKey}`;
     const balanceSheetUrl = `${baseUrl}/balance-sheet-statement/${ticker}?period=annual&limit=1&apikey=${apiKey}`;
     const quoteUrl = `${baseUrl}/quote/${ticker}?apikey=${apiKey}`;
-    
-    // Historical data endpoint (if requested)
-    const historicalIncomeUrl = historical ? 
-        `${baseUrl}/income-statement/${ticker}?period=annual&limit=5&apikey=${apiKey}` : null;
+    // --- NEW: Add the URL for the Cash Flow Statement ---
+    const cashflowUrl = `${baseUrl}/cash-flow-statement/${ticker}?period=annual&limit=1&apikey=${apiKey}`;
 
     try {
-        // Base API calls
+        // Add the new API call to the list
         const apiCalls = [
             fetch(profileUrl),
-            fetch(incomeUrl),
             fetch(balanceSheetUrl),
-            fetch(quoteUrl)
+            fetch(quoteUrl),
+            fetch(cashflowUrl) // --- NEW ---
         ];
-        
-        // Add historical call if requested
-        if (historical && historicalIncomeUrl) {
-            apiCalls.push(fetch(historicalIncomeUrl));
-        }
         
         const responses = await Promise.all(apiCalls);
         
         // Check if any request failed
-        for (let i = 0; i < responses.length; i++) {
-            if (!responses[i].ok) {
-                const errorText = await responses[i].text();
-                throw new Error(`API call ${i} failed with status ${responses[i].status}: ${errorText}`);
+        for (const response of responses) {
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`API call failed with status ${response.status}: ${errorText}`);
             }
         }
 
-        // Parse responses
-        const [profileData, incomeData, balanceSheetData, quoteData, historicalIncomeData] = 
+        // Parse all responses
+        const [profileData, balanceSheetData, quoteData, cashflowData] = 
             await Promise.all(responses.map(r => r.json()));
 
-        // Validate data
-        if (!Array.isArray(profileData) || profileData.length === 0) {
-            throw new Error('No company profile data found.');
-        }
-        if (!Array.isArray(incomeData) || incomeData.length === 0) {
-            throw new Error('No income statement data found.');
-        }
-        if (!Array.isArray(balanceSheetData) || balanceSheetData.length === 0) {
-            throw new Error('No balance sheet data found.');
-        }
-        if (!Array.isArray(quoteData) || quoteData.length === 0) {
-            throw new Error('No quote data found.');
-        }
+        // --- VALIDATION ---
+        if (!Array.isArray(profileData) || profileData.length === 0) throw new Error('No company profile data found.');
+        if (!Array.isArray(balanceSheetData) || balanceSheetData.length === 0) throw new Error('No balance sheet data found.');
+        if (!Array.isArray(quoteData) || quoteData.length === 0) throw new Error('No quote data found.');
+        if (!Array.isArray(cashflowData) || cashflowData.length === 0) throw new Error('No cash flow statement data found.');
 
-        // Calculate estimated FCF
-        const income = incomeData[0];
+        // --- ACCURATE FCF CALCULATION ---
+        const profile = profileData[0];
         const balance = balanceSheetData[0];
         const quote = quoteData[0];
+        const cashflowStatement = cashflowData[0];
 
-        const netIncome = income.netIncome || 0;
-        const depreciationAndAmortization = income.depreciationAndAmortization || 0;
-        const estimatedFCF = netIncome + depreciationAndAmortization;
+        // --- UPDATED: Use the new, precise formula ---
+        const operatingCashFlow = cashflowStatement.operatingCashFlow || 0;
+        const capitalExpenditure = cashflowStatement.capitalExpenditure || 0;
+        const accurateFCF = operatingCashFlow - capitalExpenditure;
 
-        // Create mock cash flow data
-        const mockCashflow = [{
-            freeCashFlow: estimatedFCF,
-            revenue: income.revenue,
-            netIncome: netIncome,
-            operatingCashFlow: estimatedFCF * 1.2
-        }];
-
-        // Combine all data
+        // Combine all data for the response
         const combinedData = {
             profile: {
-                ...profileData[0],
+                ...profile,
                 price: quote.price,
-                sharesOutstanding: profileData[0].sharesOutstanding || 
-                                 profileData[0].weightedAverageShsOut || 
-                                 profileData[0].weightedAverageShsOutDil ||
-                                 quote.sharesOutstanding ||
-                                 quote.weightedAverageShsOut ||
-                                 quote.weightedAverageShsOutDil ||
-                                 null
+                sharesOutstanding: quote.sharesOutstanding || profile.sharesOutstanding || null
             },
-            cashflow: mockCashflow,
-            balanceSheet: balanceSheetData[0],
-            // Add historical data if requested
-            ...(historical && historicalIncomeData ? { historicalIncome: historicalIncomeData } : {}),
-            note: "Free Cash Flow is estimated from Income Statement data. For actual cash flow data, upgrade to FMP paid plan."
+            // --- UPDATED: Use the real cash flow data ---
+            cashflow: [{
+                freeCashFlow: accurateFCF,
+                revenue: cashflowStatement.revenue, // Revenue is also on the cash flow statement
+                netIncome: cashflowStatement.netIncome,
+                operatingCashFlow: operatingCashFlow,
+                capitalExpenditure: capitalExpenditure
+            }],
+            balanceSheet: balance,
+            note: "FCF is calculated from the annual Cash Flow Statement (Operating Cash Flow - Capital Expenditure)."
         };
-
-        console.log(`Successfully processed data for ${ticker}${historical ? ' with historical data' : ''}`);
 
         // Cache the result
         cache.set(cacheKey, {
