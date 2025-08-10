@@ -4,7 +4,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Professional DCF Model with Live Data</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
+/* --- (Your existing CSS styles go here, no changes needed) --- */
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;padding:20px}
 .container{max-width:1400px;margin:0 auto;background:#fff;border-radius:15px;box-shadow:0 20px 40px rgba(0,0,0,0.1);overflow:hidden}
@@ -180,10 +182,17 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:linear-g
         <button class="calculate-btn" onclick="calculateDCF()">🚀 Calculate DCF Valuation</button>
       </div>
     </div>
-
     <div class="results-section">
       <h2 class="section-title">💰 Valuation Results</h2>
-      
+      <div id="charts-container" style="display:none; margin-top: 20px;">
+        <h3 class="section-title">📈 5-Year Historical Trends</h3>
+        <div style="margin-bottom: 20px;">
+            <canvas id="revenue-chart"></canvas>
+        </div>
+        <div>
+            <canvas id="fcf-chart"></canvas>
+        </div>
+      </div>
       <div class="scenario-tabs">
         <div class="scenario-tab active" onclick="showScenario('base', this)">Base Case</div>
         <div class="scenario-tab" onclick="showScenario('bull', this)">Bull Case</div>
@@ -267,7 +276,6 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:linear-g
     </div>
   </div>
 </div>
-
 <script src="app.js"></script>
 
 </body>
