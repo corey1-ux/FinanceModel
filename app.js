@@ -12,8 +12,13 @@ function renderPeerTable(comparisonData) {
     
     tbody.innerHTML = ''; // Clear previous data
 
+    if (!comparisonData || !comparisonData.primary || !comparisonData.peers) {
+        container.style.display = 'none';
+        return;
+    }
+
     const { primary, peers } = comparisonData;
-    if (!primary || peers.length === 0) {
+    if (peers.length === 0) {
         container.style.display = 'none';
         return;
     }
@@ -25,11 +30,9 @@ function renderPeerTable(comparisonData) {
     headers[0].textContent = 'Metric';
     headers[1].textContent = tickers[0] || 'N/A';
     headers[2].textContent = tickers[1] || 'N/A';
-    // Ensure there's a third header to update
     if (headers[3]) {
       headers[3].textContent = tickers[2] || 'N/A';
     }
-
 
     const metricsConfig = [
         { key: 'peRatio', name: 'P/E Ratio', format: 'x' },
@@ -67,10 +70,10 @@ function renderPeerTable(comparisonData) {
             let className = '';
 
             if (value !== null && isFinite(value)) {
-                // Determine outlier status
-                if (stdDev > 0) {
-                    if (value > avg + (1.2 * stdDev)) className = 'outlier-high'; // 1.2x std dev for significance
-                    if (value < avg - (1.2 * stdDev)) className = 'outlier-low';
+                // Determine outlier status (flag anything > 1 standard deviation)
+                if (stdDev > 0.0001) { // Avoid division by zero for stable metrics
+                    if (value > avg + stdDev) className = 'outlier-high';
+                    if (value < avg - stdDev) className = 'outlier-low';
                 }
 
                 // Format the display value
@@ -194,7 +197,8 @@ async function fetchFinancialData() {
   document.getElementById('charts-container').style.display = 'none';
   document.getElementById('peer-comparison-container').style.display = 'none';
 
-  try:
+  // --- FIX: Correct `try {` syntax ---
+  try {
     const response = await fetch(`/.netlify/functions/fetch-financials?ticker=${ticker}`);
     if (!response.ok) {
       const errorData = await response.json();
