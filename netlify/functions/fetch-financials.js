@@ -1,163 +1,193 @@
-const cache = new Map();
+// Smart automation using ONLY existing API data (no extra calls)
+function autoCalculateAssumptions() {
+  const profile = window.lastFetchedData?.profile;
+  
+  if (!profile) {
+    showStatus('Please fetch financial data first', 'error');
+    return;
+  }
+  
+  console.log('Auto-calculating assumptions using existing data...');
+  
+  // 1. Use Beta for WACC calculation
+  const wacc = calculateWACCFromBeta(profile.beta);
+  
+  // 2. Use Sector/Industry for growth estimates
+  const growthEstimates = getIndustryGrowthEstimates(profile.sector, profile.industry);
+  
+  // 3. Use Market Cap size for risk adjustment
+  const sizeAdjustment = getSizeAdjustment(profile.mktCap);
+  
+  // 4. Apply adjustments
+  const finalAssumptions = {
+    revenueGrowth15: Math.round((growthEstimates.nearTerm * sizeAdjustment.growth) * 10) / 10,
+    revenueGrowth610: Math.round((growthEstimates.longTerm * sizeAdjustment.growth) * 10) / 10,
+    terminalGrowth: 2.5,
+    discountRate: Math.round((wacc * sizeAdjustment.risk) * 10) / 10
+  };
+  
+  // 5. Populate fields
+  document.getElementById('revenue-growth-1-5').value = finalAssumptions.revenueGrowth15;
+  document.getElementById('revenue-growth-6-10').value = finalAssumptions.revenueGrowth610;
+  document.getElementById('terminal-growth').value = finalAssumptions.terminalGrowth;
+  document.getElementById('discount-rate').value = finalAssumptions.discountRate;
+  
+  // 6. Show explanation
+  const explanation = `🤖 Auto-calculated: ${profile.sector} sector, $${(profile.mktCap/1e9).toFixed(0)}B market cap, ${profile.beta} beta → ${finalAssumptions.revenueGrowth15}% near-term growth, ${finalAssumptions.discountRate}% WACC`;
+  showStatus(explanation, 'success');
+  
+  console.log('Applied assumptions:', finalAssumptions);
+}
 
-exports.handler = async (event, context) => {
-    const headers = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Content-Type': 'application/json'
-    };
+// Calculate WACC using only Beta (no extra API calls)
+function calculateWACCFromBeta(beta) {
+  const riskFreeRate = 4.5; // Update this periodically (10-year Treasury)
+  const marketRiskPremium = 5.5; // Historical average
+  
+  if (!beta || beta <= 0) beta = 1.0; // Default if missing
+  
+  const costOfEquity = riskFreeRate + (beta * marketRiskPremium);
+  return Math.min(Math.max(costOfEquity, 7), 15); // Cap between 7-15%
+}
 
-    if (event.httpMethod === 'OPTIONS') {
-        return { statusCode: 200, headers, body: '' };
+// Industry growth estimates (no API needed)
+function getIndustryGrowthEstimates(sector, industry) {
+  const sectorGrowth = {
+    'Technology': { nearTerm: 12, longTerm: 6 },
+    'Healthcare': { nearTerm: 8, longTerm: 5 },
+    'Financial Services': { nearTerm: 6, longTerm: 4 },
+    'Consumer Cyclical': { nearTerm: 7, longTerm: 4 },
+    'Consumer Defensive': { nearTerm: 4, longTerm: 3 },
+    'Industrials': { nearTerm: 6, longTerm: 4 },
+    'Energy': { nearTerm: 5, longTerm: 3 },
+    'Utilities': { nearTerm: 3, longTerm: 2 },
+    'Real Estate': { nearTerm: 4, longTerm: 3 },
+    'Materials': { nearTerm: 5, longTerm: 3 },
+    'Communication Services': { nearTerm: 8, longTerm: 5 }
+  };
+  
+  // Fine-tune by specific industry if needed
+  const industryAdjustments = {
+    'Software': 1.3,
+    'Semiconductors': 1.2,
+    'Biotechnology': 1.4,
+    'Airlines': 0.8,
+    'Utilities': 0.7,
+    'Banks': 0.9
+  };
+  
+  const baseGrowth = sectorGrowth[sector] || { nearTerm: 6, longTerm: 4 };
+  const industryMultiplier = industryAdjustments[industry] || 1.0;
+  
+  return {
+    nearTerm: baseGrowth.nearTerm * industryMultiplier,
+    longTerm: baseGrowth.longTerm * industryMultiplier
+  };
+}
+
+// Adjust for company size (larger = more stable, lower growth)
+function getSizeAdjustment(marketCap) {
+  const capInBillions = marketCap / 1e9;
+  
+  if (capInBillions > 500) {
+    // Mega cap (Apple, Microsoft, etc.)
+    return { growth: 0.8, risk: 0.9 };
+  } else if (capInBillions > 100) {
+    // Large cap
+    return { growth: 0.9, risk: 0.95 };
+  } else if (capInBillions > 10) {
+    // Mid cap
+    return { growth: 1.0, risk: 1.0 };
+  } else if (capInBillions > 2) {
+    // Small cap
+    return { growth: 1.1, risk: 1.1 };
+  } else {
+    // Micro cap
+    return { growth: 1.2, risk: 1.2 };
+  }
+}
+
+// Store fetched data globally for automation
+let lastFetchedData = null;
+
+// Modified fetch function to store data
+async function fetchFinancialData() {
+  const ticker = document.getElementById('ticker-input').value.trim().toUpperCase();
+  if (!ticker) {
+    showStatus('Please enter a stock ticker.', 'error');
+    return;
+  }
+
+  const loader = document.getElementById('api-loader');
+  const btnText = document.querySelector('.fetch-btn .btn-text');
+  const fetchButton = document.getElementById('fetch-button');
+  
+  loader.style.display = 'block';
+  btnText.textContent = 'Fetching...';
+  fetchButton.disabled = true;
+
+  try {
+    const response = await fetch(`/.netlify/functions/fetch-financials?ticker=${ticker}`);
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `API request failed with status: ${response.status}`);
     }
 
-    const { ticker, historical } = event.queryStringParameters || {};
-    const CACHE_DURATION_MS = 60 * 60 * 1000; // 1 hour cache
-
-    if (!ticker) {
-        return {
-            statusCode: 400,
-            headers,
-            body: JSON.stringify({ error: 'Ticker parameter is required' })
-        };
-    }
-
-    // Check cache first
-    const cacheKey = historical ? `${ticker}_hist` : ticker;
-    const cachedEntry = cache.get(cacheKey);
-    if (cachedEntry && (Date.now() - cachedEntry.timestamp < CACHE_DURATION_MS)) {
-        console.log(`Returning cached data for ${cacheKey}`);
-        return {
-            statusCode: 200,
-            headers,
-            body: JSON.stringify(cachedEntry.data)
-        };
-    }
-
-    const apiKey = process.env.FMP_API_KEY;
-    if (!apiKey) {
-        return {
-            statusCode: 500,
-            headers,
-            body: JSON.stringify({ error: 'FMP_API_KEY environment variable is not configured.' })
-        };
-    }
-
-    const baseUrl = 'https://financialmodelingprep.com/api/v3';
+    const data = await response.json();
     
-    // Base endpoints
-    const profileUrl = `${baseUrl}/profile/${ticker}?apikey=${apiKey}`;
-    const incomeUrl = `${baseUrl}/income-statement/${ticker}?period=annual&limit=1&apikey=${apiKey}`;
-    const balanceSheetUrl = `${baseUrl}/balance-sheet-statement/${ticker}?period=annual&limit=1&apikey=${apiKey}`;
-    const quoteUrl = `${baseUrl}/quote/${ticker}?apikey=${apiKey}`;
+    // Store data globally for automation
+    window.lastFetchedData = data;
     
-    // Historical data endpoint (if requested)
-    const historicalIncomeUrl = historical ? 
-        `${baseUrl}/income-statement/${ticker}?period=annual&limit=5&apikey=${apiKey}` : null;
+    const { profile, cashflow, balanceSheet } = data;
 
-    try {
-        // Base API calls
-        const apiCalls = [
-            fetch(profileUrl),
-            fetch(incomeUrl),
-            fetch(balanceSheetUrl),
-            fetch(quoteUrl)
-        ];
-        
-        // Add historical call if requested
-        if (historical && historicalIncomeUrl) {
-            apiCalls.push(fetch(historicalIncomeUrl));
-        }
-        
-        const responses = await Promise.all(apiCalls);
-        
-        // Check if any request failed
-        for (let i = 0; i < responses.length; i++) {
-            if (!responses[i].ok) {
-                const errorText = await responses[i].text();
-                throw new Error(`API call ${i} failed with status ${responses[i].status}: ${errorText}`);
-            }
-        }
+    // Debug: Log all available fields
+    console.log('Profile data fields:', Object.keys(profile));
+    console.log('Full profile data:', profile);
 
-        // Parse responses
-        const [profileData, incomeData, balanceSheetData, quoteData, historicalIncomeData] = 
-            await Promise.all(responses.map(r => r.json()));
+    // Calculate TTM
+    const ttmRevenue = cashflow.reduce((acc, quarter) => acc + (quarter.revenue || 0), 0);
+    const ttmFcf = cashflow.reduce((acc, quarter) => acc + (quarter.freeCashFlow || 0), 0);
 
-        // Validate data
-        if (!Array.isArray(profileData) || profileData.length === 0) {
-            throw new Error('No company profile data found.');
-        }
-        if (!Array.isArray(incomeData) || incomeData.length === 0) {
-            throw new Error('No income statement data found.');
-        }
-        if (!Array.isArray(balanceSheetData) || balanceSheetData.length === 0) {
-            throw new Error('No balance sheet data found.');
-        }
-        if (!Array.isArray(quoteData) || quoteData.length === 0) {
-            throw new Error('No quote data found.');
-        }
+    // Populate UI fields
+    document.getElementById('company-name').value = profile.companyName || 'N/A';
+    document.getElementById('current-price').value = profile.price ? profile.price.toFixed(2) : '0';
+    
+    // Try multiple possible field names for shares outstanding
+    let sharesOutstanding = profile.sharesOutstanding || 
+                           profile.weightedAverageShsOut || 
+                           profile.weightedAverageShsOutDil || 
+                           profile.shares || 
+                           0;
+    
+    console.log('Shares outstanding found:', sharesOutstanding);
+    
+    const sharesInBillion = sharesOutstanding ? (sharesOutstanding / 1_000_000_000).toFixed(2) : '0';
+    console.log('Shares in billion calculated:', sharesInBillion);
+    document.getElementById('shares-outstanding').value = sharesInBillion;
+    console.log('Shares outstanding field populated with:', document.getElementById('shares-outstanding').value);
+    document.getElementById('shares-unit').value = 'billion';
 
-        // Calculate estimated FCF
-        const income = incomeData[0];
-        const balance = balanceSheetData[0];
-        const quote = quoteData[0];
+    document.getElementById('current-revenue').value = (ttmRevenue / 1_000_000_000).toFixed(2);
+    document.getElementById('revenue-unit').value = 'billion';
+    
+    document.getElementById('free-cash-flow').value = (ttmFcf / 1_000_000_000).toFixed(2);
+    document.getElementById('fcf-unit').value = 'billion';
 
-        const netIncome = income.netIncome || 0;
-        const depreciationAndAmortization = income.depreciationAndAmortization || 0;
-        const estimatedFCF = netIncome + depreciationAndAmortization;
+    document.getElementById('total-debt').value = (balanceSheet.totalDebt / 1_000_000_000).toFixed(2);
+    document.getElementById('debt-unit').value = 'billion';
 
-        // Create mock cash flow data
-        const mockCashflow = [{
-            freeCashFlow: estimatedFCF,
-            revenue: income.revenue,
-            netIncome: netIncome,
-            operatingCashFlow: estimatedFCF * 1.2
-        }];
+    document.getElementById('cash-equivalents').value = (balanceSheet.cashAndCashEquivalents / 1_000_000_000).toFixed(2);
+    document.getElementById('cash-unit').value = 'billion';
 
-        // Combine all data
-        const combinedData = {
-            profile: {
-                ...profileData[0],
-                price: quote.price,
-                sharesOutstanding: profileData[0].sharesOutstanding || 
-                                 profileData[0].weightedAverageShsOut || 
-                                 profileData[0].weightedAverageShsOutDil ||
-                                 quote.sharesOutstanding ||
-                                 quote.weightedAverageShsOut ||
-                                 quote.weightedAverageShsOutDil ||
-                                 null
-            },
-            cashflow: mockCashflow,
-            balanceSheet: balanceSheetData[0],
-            // Add historical data if requested
-            ...(historical && historicalIncomeData ? { historicalIncome: historicalIncomeData } : {}),
-            note: "Free Cash Flow is estimated from Income Statement data. For actual cash flow data, upgrade to FMP paid plan."
-        };
+    showStatus(`✅ Successfully loaded data for ${profile.companyName}. Click "Auto-Calculate Assumptions" for smart defaults.`, 'success');
 
-        console.log(`Successfully processed data for ${ticker}${historical ? ' with historical data' : ''}`);
-
-        // Cache the result
-        cache.set(cacheKey, {
-            data: combinedData,
-            timestamp: Date.now()
-        });
-
-        return {
-            statusCode: 200,
-            headers,
-            body: JSON.stringify(combinedData)
-        };
-
-    } catch (error) {
-        console.error('Error in function:', error);
-        return {
-            statusCode: 500,
-            headers,
-            body: JSON.stringify({ 
-                error: error.message,
-                details: 'Check function logs for more information'
-            })
-        };
-    }
-};
+  } catch (error) {
+    console.error('Error fetching financial data:', error);
+    showStatus(`❌ Failed to fetch data: ${error.message}`, 'error');
+  } finally {
+    loader.style.display = 'none';
+    btnText.textContent = 'Fetch Financial Data';
+    fetchButton.disabled = false;
+  }
+}
