@@ -1,0 +1,8 @@
+{
+  "name": "dcf-valuation-app",
+  "version": "1.0.0",
+  "description": "Dependencies for Netlify function",
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  }
+}
